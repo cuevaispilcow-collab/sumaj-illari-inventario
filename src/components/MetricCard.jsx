@@ -1,4 +1,5 @@
 import React from "react";
+import { DARK_GRID, DARK_TICK, DARK_TOOLTIP, DARK_TOOLTIP_ITEM, DARK_TOOLTIP_LABEL } from "../utils/constants.js";
 
 export default function MetricCard({ icon: Icon, label, value, tone = "default", dark = false, color }) {
   if (dark) {
@@ -26,11 +27,4 @@ export default function MetricCard({ icon: Icon, label, value, tone = "default",
     </div>
   );
 }
-
-// Estilo compartido para los gráficos (recharts) en las vistas oscuras.
-const DARK_GRID = "#292524";
-const DARK_TICK = { fontSize: 11, fill: "#a8a29e" };
-const DARK_TOOLTIP = { fontSize: 12, borderRadius: 8, backgroundColor: "#1c1917", border: "1px solid #44403c", color: "#f5f5f4" };
-const DARK_TOOLTIP_ITEM = { color: "#f5f5f4" };
-const DARK_TOOLTIP_LABEL = { color: "#e7e5e4" };
 
