@@ -59,6 +59,7 @@ function SumajIllariApp({ rol, cerrarSesion }) {
   const [ventas, setVentas] = useState(null);
   const [compras, setCompras] = useState(null);
   const [producciones, setProducciones] = useState(null);
+  const [pedidos, setPedidos] = useState(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState(vistaInicial(rol));
   const [toast, setToast] = useState(null);
@@ -69,9 +70,9 @@ function SumajIllariApp({ rol, cerrarSesion }) {
   // vendedora, computadora de la gerente, etc.) guarda un cambio, todos
   // los demás lo reciben automáticamente aquí, sin recargar la página.
   useEffect(() => {
-    let cargados = { productos: false, movimientos: false, ventas: false, compras: false, producciones: false };
+    let cargados = { productos: false, movimientos: false, ventas: false, compras: false, producciones: false, pedidos: false };
     const marcarListo = () => {
-      if (cargados.productos && cargados.movimientos && cargados.ventas && cargados.compras && cargados.producciones) setReady(true);
+      if (cargados.productos && cargados.movimientos && cargados.ventas && cargados.compras && cargados.producciones && cargados.pedidos) setReady(true);
     };
     const manejarError = (error) => {
       setErrorCarga(
@@ -105,7 +106,12 @@ function SumajIllariApp({ rol, cerrarSesion }) {
       cargados.producciones = true;
       marcarListo();
     }, manejarError);
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); };
+    const unsub6 = escucharColeccion("pedidos", (items) => {
+      setPedidos(items);
+      cargados.pedidos = true;
+      marcarListo();
+    }, manejarError);
+    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); };
   }, []);
 
   // Red de seguridad: si algo falla en segundo plano (por ejemplo, el guardado),
@@ -118,13 +124,14 @@ function SumajIllariApp({ rol, cerrarSesion }) {
     return () => window.removeEventListener("unhandledrejection", onRejection);
   }, []);
 
-  function persist(newProductos, newMovimientos, newVentas, newCompras, newProducciones) {
+  function persist(newProductos, newMovimientos, newVentas, newCompras, newProducciones, newPedidos) {
     // 1) Actualiza la pantalla al instante, sin esperar nada.
     setProductos(newProductos);
     setMovimientos(newMovimientos);
     if (newVentas !== undefined) setVentas(newVentas);
     if (newCompras !== undefined) setCompras(newCompras);
     if (newProducciones !== undefined) setProducciones(newProducciones);
+    if (newPedidos !== undefined) setPedidos(newPedidos);
 
     // 2) Guarda en Firestore en segundo plano. Como todos los dispositivos
     //    escuchan la misma base de datos (ver el useEffect de arriba), este
@@ -145,6 +152,9 @@ function SumajIllariApp({ rol, cerrarSesion }) {
         if (newProducciones !== undefined) {
           await withTimeout(guardarColeccion("producciones", newProducciones), 8000);
         }
+        if (newPedidos !== undefined) {
+          await withTimeout(guardarColeccion("pedidos", newPedidos), 8000);
+        }
       } catch (e) {
         showToast("error", "Se guardó en pantalla, pero el respaldo tardó demasiado. Usa \"Exportar Excel\" para no perder datos.");
       }
@@ -159,13 +169,13 @@ function SumajIllariApp({ rol, cerrarSesion }) {
   }
 
   async function resetAll() {
-    await persist([], [], [], [], []);
+    await persist([], [], [], [], [], []);
     setConfirmReset(false);
-    showToast("success", "Todo se reinició. Catálogo, movimientos, ventas, compras y producción en cero.");
+    showToast("success", "Todo se reinició. Catálogo, movimientos, ventas, compras, producción y pedidos en cero.");
   }
 
   function exportarExcel() {
-    if (productos.length === 0 && ventas.length === 0 && movimientos.length === 0 && compras.length === 0 && producciones.length === 0) {
+    if (productos.length === 0 && ventas.length === 0 && movimientos.length === 0 && compras.length === 0 && producciones.length === 0 && (pedidos || []).length === 0) {
       showToast("error", "No hay nada que exportar todavía.");
       return;
     }
@@ -211,6 +221,15 @@ function SumajIllariApp({ rol, cerrarSesion }) {
       }))
     );
     XLSX.utils.book_append_sheet(wb, wsProd, "Produccion");
+
+    const wsPedidos = XLSX.utils.json_to_sheet(
+      (pedidos || []).map((pe) => ({
+        Fecha_tomado: pe.fecha, Cliente: pe.cliente, Codigo: pe.codigo, Producto: pe.producto,
+        Cantidad: pe.cantidad, Etapa: pe.etapa, Fecha_entrega: pe.fechaEntrega,
+        Precio_cotizado: pe.precioCotizado, Costo_produccion: pe.costoProduccion, Margen: pe.margen,
+      }))
+    );
+    XLSX.utils.book_append_sheet(wb, wsPedidos, "Pedidos");
 
     const fechaArchivo = todayStr();
     XLSX.writeFile(wb, `SUMAJ_ILLARI_Respaldo_${fechaArchivo}.xlsx`);
@@ -259,7 +278,7 @@ function SumajIllariApp({ rol, cerrarSesion }) {
             <Compras productos={productos} movimientos={movimientos} compras={compras} onSave={persist} showToast={showToast} />
           )}
           {vistaSegura === "produccion" && (
-            <Produccion productos={productos} movimientos={movimientos} compras={compras} producciones={producciones} onSave={persist} showToast={showToast} />
+            <Produccion productos={productos} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} />
           )}
           {vistaSegura === "nuevo" && (
             <NuevoProducto productos={productos} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} />
