@@ -30,7 +30,7 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, ro
             <span className="text-red-400 font-black tracking-tight text-xl">SUMAJ</span>
             <span className="text-stone-100 font-black tracking-tight text-xl"> ILLARI</span>
           </p>
-          <p className="text-xs text-stone-400 font-semibold mt-1">Control de inventarios</p>
+          <p className="text-xs text-stone-400 font-semibold mt-1">Sistema de gestión</p>
         </div>
       </div>
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
