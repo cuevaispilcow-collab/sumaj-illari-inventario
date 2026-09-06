@@ -26,6 +26,7 @@ export default function Ventas({ productos, movimientos, ventas, onSave, showToa
   const totalCalc = round2(cant * prec);
   const pagoSum = round2((Number(efectivo) || 0) + (Number(yape) || 0) + (Number(tarjeta) || 0));
   const pagoDescuadrado = (efectivo !== "" || yape !== "" || tarjeta !== "") && totalCalc > 0 && pagoSum !== totalCalc;
+  const precioBajoMinimo = producto && producto.precioMinimo != null && prec > 0 && prec < producto.precioMinimo;
 
   function reset() {
     setProductoId(""); setCantidad(""); setDescripcion(""); setPrecio("");
@@ -148,7 +149,12 @@ export default function Ventas({ productos, movimientos, ventas, onSave, showToa
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Precio unitario (S/)</label>
                   <input type="number" min="0" step="0.5" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="0.00"
-                    className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+                    className={`w-full px-3 py-2 rounded-lg border text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 ${precioBajoMinimo ? "border-amber-400 focus:ring-amber-500" : "border-stone-300 focus:ring-red-500"}`} />
+                  {precioBajoMinimo && (
+                    <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                      <AlertTriangle size={12} /> Por debajo del mínimo (S/ {producto.precioMinimo}).
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Efectivo (S/)</label>

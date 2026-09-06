@@ -11,6 +11,8 @@ export default function Productos({ productos, movimientos, ventas, onSave, show
   const [tipo, setTipo] = useState("todos");
   const [editingId, setEditingId] = useState(null);
   const [editValue, setEditValue] = useState("");
+  const [editingRotId, setEditingRotId] = useState(null);
+  const [editRotValue, setEditRotValue] = useState("");
   const [editandoProducto, setEditandoProducto] = useState(null); // producto completo en edición (modal)
 
   const filtrados = productos.filter((p) => {
@@ -40,9 +42,39 @@ export default function Productos({ productos, movimientos, ventas, onSave, show
     showToast("success", "Stock mínimo actualizado.");
   }
 
+  // El umbral de "rotación lenta" (a partir de cuántos días avisar) lo
+  // define cada gerente por producto — no es un número que la app deba
+  // adivinar, porque una tela y una prenda de temporada pueden rotar a
+  // ritmos muy distintos.
+  function startEditRot(p) {
+    setEditingRotId(p.id);
+    setEditRotValue(p.diasRotacionAlerta != null ? String(p.diasRotacionAlerta) : "");
+  }
+
+  async function saveEditRot(p) {
+    const val = editRotValue.trim() === "" ? null : Number(editRotValue);
+    if (editRotValue.trim() !== "" && (isNaN(val) || val <= 0)) {
+      showToast("error", "El umbral de rotación debe ser un número mayor a cero.");
+      return;
+    }
+    const newProductos = productos.map((x) => (x.id === p.id ? { ...x, diasRotacionAlerta: val } : x));
+    await onSave(newProductos, movimientos);
+    setEditingRotId(null);
+    showToast("success", "Umbral de rotación actualizado.");
+  }
+
   function statusOf(p) {
     if (p.stockMinimo == null) return "sin_definir";
     return p.stock <= p.stockMinimo ? "bajo" : "ok";
+  }
+
+  // Cuántos días lleva el producto en el catálogo desde que se incorporó.
+  // Productos creados antes de esta función no tienen el dato — se muestra
+  // "—" en vez de inventar una fecha.
+  function diasEnInventario(p) {
+    if (!p.fechaIncorporacion) return null;
+    const dias = Math.floor((new Date() - new Date(p.fechaIncorporacion + "T00:00:00")) / 86400000);
+    return dias >= 0 ? dias : null;
   }
 
   if (productos.length === 0) {
@@ -94,6 +126,7 @@ export default function Productos({ productos, movimientos, ventas, onSave, show
               <th className="text-left px-4 py-2 font-medium text-stone-600">Talla</th>
               <th className="text-right px-4 py-2 font-medium text-stone-600">Stock</th>
               <th className="text-right px-4 py-2 font-medium text-stone-600">Stock mínimo</th>
+              <th className="text-right px-4 py-2 font-medium text-stone-600">Días en inventario</th>
               {rol === "gerente" && <th className="text-right px-4 py-2 font-medium text-stone-600">Costo unit.</th>}
               <th className="text-center px-4 py-2 font-medium text-stone-600">Estado</th>
               <th className="text-center px-4 py-2 font-medium text-stone-600">Acciones</th>
@@ -133,6 +166,41 @@ export default function Productos({ productos, movimientos, ventas, onSave, show
                         <Edit3 size={11} className="opacity-50" />
                       </button>
                     )}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    {(() => {
+                      const dias = diasEnInventario(p);
+                      const umbral = p.diasRotacionAlerta;
+                      const lenta = dias != null && umbral != null && dias > umbral && p.stock > 0;
+                      return (
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className={lenta ? "text-amber-600 font-semibold" : "text-stone-600"} title={lenta ? `Lleva más de ${umbral} días en inventario` : undefined}>
+                            {dias == null ? <span className="text-stone-300">—</span> : dias}
+                          </span>
+                          {rol === "gerente" && (
+                            editingRotId === p.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  autoFocus type="number" min="1" value={editRotValue}
+                                  onChange={(e) => setEditRotValue(e.target.value)}
+                                  onKeyDown={(e) => e.key === "Enter" && saveEditRot(p)}
+                                  placeholder="días"
+                                  className="w-14 px-1 py-0.5 rounded border border-red-400 text-xs text-stone-800 bg-white text-right focus:outline-none"
+                                />
+                                <button onClick={() => saveEditRot(p)} className="text-red-600 hover:text-red-800">
+                                  <CheckCircle2 size={13} />
+                                </button>
+                              </div>
+                            ) : (
+                              <button onClick={() => startEditRot(p)} className="text-[10px] text-stone-400 hover:text-red-600 inline-flex items-center gap-0.5">
+                                alerta: {umbral != null ? `${umbral}d` : "sin definir"}
+                                <Edit3 size={9} className="opacity-60" />
+                              </button>
+                            )
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   {rol === "gerente" && (
                     <td className="px-4 py-2 text-right text-stone-600">

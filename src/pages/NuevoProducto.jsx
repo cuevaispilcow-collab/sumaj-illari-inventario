@@ -3,6 +3,7 @@ import {
   XCircle, PackagePlus,
 } from "lucide-react";
 import { TIPOS } from "../utils/constants.js";
+import { todayStr } from "../utils/format.js";
 
 export default function NuevoProducto({ productos, movimientos, onSave, showToast, setView }) {
   const [tipo, setTipo] = useState("Materia prima");
@@ -53,6 +54,7 @@ export default function NuevoProducto({ productos, movimientos, onSave, showToas
       id, codigo: codigo.trim(), categoria: categoria.trim(), producto: producto.trim(),
       descripcion: descripcion.trim(), talla: talla.trim() || "Única", unidad,
       stock: si, stockMinimo: sm, tipo,
+      fechaIncorporacion: todayStr(), // para saber cuánto tiempo lleva en inventario
     };
     try {
       setEnviando(true);

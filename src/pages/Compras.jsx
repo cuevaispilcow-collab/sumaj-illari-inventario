@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import {
-  Plus, XCircle, Truck,
+  Plus, XCircle, Truck, BarChart3, AlertTriangle,
 } from "lucide-react";
 import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
 import EmptyState from "../components/EmptyState.jsx";
@@ -8,11 +8,13 @@ import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro } from "../firestoreSync.js";
 
 export default function Compras({ productos, movimientos, compras, onSave, showToast }) {
+  const [tab, setTab] = useState("registro"); // "registro" | "pareto"
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
   const [productoId, setProductoId] = useState("");
   const [cantidad, setCantidad] = useState("");
   const [costoUnitario, setCostoUnitario] = useState("");
+  const [precioMinimo, setPrecioMinimo] = useState("");
   const [proveedor, setProveedor] = useState("");
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -23,7 +25,7 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
   const totalCalc = round2(cant * costo);
 
   function reset() {
-    setProductoId(""); setCantidad(""); setCostoUnitario(""); setProveedor(""); setError("");
+    setProductoId(""); setCantidad(""); setCostoUnitario(""); setPrecioMinimo(""); setProveedor(""); setError("");
   }
 
   async function handleSubmit(e) {
@@ -33,6 +35,10 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
     if (!cantidad || cant <= 0) return setError("Ingresa una cantidad válida, mayor a cero.");
     if (costoUnitario === "" || costo < 0) return setError("Ingresa un costo unitario válido.");
     if (!proveedor.trim()) return setError("Ingresa el nombre del proveedor.");
+    const pMin = precioMinimo.trim() === "" ? null : Number(precioMinimo);
+    if (precioMinimo.trim() !== "" && (isNaN(pMin) || pMin < 0)) {
+      return setError("El precio mínimo de venta debe ser un número válido.");
+    }
 
     setEnviando(true);
     setError("");
@@ -55,7 +61,9 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
         costoFinal = nuevoCosto;
 
         const nuevosProductos = actuales.productos.map((p) =>
-          p.id === productoId ? { ...p, stock: p.stock + cant, costoUnitario: nuevoCosto } : p
+          p.id === productoId
+            ? { ...p, stock: p.stock + cant, costoUnitario: nuevoCosto, ...(pMin != null ? { precioMinimo: pMin } : {}) }
+            : p
         );
         const compra = {
           id: `C${Date.now()}`,
@@ -94,18 +102,98 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
     return Object.entries(groups).sort((a, b) => (a[0] < b[0] ? 1 : -1));
   }, [compras]);
 
+  // Análisis 80/20 (Pareto): agrupa todo lo comprado por producto, ordena
+  // de mayor a menor gasto, y marca cuáles concentran el 80% del total —
+  // esos son los que más conviene vigilar o negociar con el proveedor.
+  const pareto = useMemo(() => {
+    const porProducto = {};
+    for (const c of compras) {
+      if (!porProducto[c.productoId]) {
+        porProducto[c.productoId] = { productoId: c.productoId, nombre: `${c.producto}${c.talla !== "Única" ? " - " + c.talla : ""}`, codigo: c.codigo, total: 0 };
+      }
+      porProducto[c.productoId].total += c.total;
+    }
+    const lista = Object.values(porProducto)
+      .map((p) => ({ ...p, total: round2(p.total) }))
+      .sort((a, b) => b.total - a.total);
+    const granTotal = round2(lista.reduce((s, p) => s + p.total, 0));
+    let acumulado = 0;
+    return lista.map((p) => {
+      acumulado = round2(acumulado + p.total);
+      const pctIndividual = granTotal > 0 ? round2((p.total / granTotal) * 100) : 0;
+      const pctAcumulado = granTotal > 0 ? round2((acumulado / granTotal) * 100) : 0;
+      const pctAcumuladoAntes = round2(pctAcumulado - pctIndividual);
+      return { ...p, pctIndividual, pctAcumulado, enEl80: pctAcumuladoAntes < 80 };
+    });
+  }, [compras]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-stone-700">Registro de compras</h2>
-        <button
-          onClick={() => setShowForm((s) => !s)}
-          className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition inline-flex items-center gap-1.5"
-        >
-          <Plus size={15} /> Registrar compra
-        </button>
+        <div className="flex gap-1.5">
+          <button onClick={() => setTab("registro")}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${tab === "registro" ? "bg-stone-900 text-white border-stone-900" : "bg-white text-stone-600 border-stone-300 hover:bg-stone-50"}`}>
+            Registro de compras
+          </button>
+          <button onClick={() => setTab("pareto")}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition inline-flex items-center gap-1 ${tab === "pareto" ? "bg-stone-900 text-white border-stone-900" : "bg-white text-stone-600 border-stone-300 hover:bg-stone-50"}`}>
+            <BarChart3 size={13} /> Análisis 80/20
+          </button>
+        </div>
+        {tab === "registro" && (
+          <button
+            onClick={() => setShowForm((s) => !s)}
+            className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition inline-flex items-center gap-1.5"
+          >
+            <Plus size={15} /> Registrar compra
+          </button>
+        )}
       </div>
 
+      {tab === "pareto" ? (
+        pareto.length === 0 ? (
+          <EmptyState icon={BarChart3} title="Todavía no hay compras para analizar" body="En cuanto registres compras, aquí vas a ver qué productos concentran el 80% de tu gasto." />
+        ) : (
+          <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
+            <div className="bg-stone-50 px-4 py-2.5 border-b border-stone-200">
+              <p className="text-sm text-stone-600">
+                Los productos marcados en rojo son los que concentran aproximadamente el <strong>80% de todo lo que has comprado</strong>. Son los que más conviene vigilar de cerca o negociar con el proveedor.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-stone-50 border-b border-stone-200">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-medium text-stone-600">Producto</th>
+                    <th className="text-right px-4 py-2 font-medium text-stone-600">Gastado</th>
+                    <th className="text-right px-4 py-2 font-medium text-stone-600">% del total</th>
+                    <th className="text-right px-4 py-2 font-medium text-stone-600">% acumulado</th>
+                    <th className="text-center px-4 py-2 font-medium text-stone-600">Zona</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pareto.map((p) => (
+                    <tr key={p.productoId} className={`border-b border-stone-50 last:border-0 ${p.enEl80 ? "bg-red-50/40" : ""}`}>
+                      <td className="px-4 py-2 text-stone-800">
+                        {p.nombre} <span className="text-stone-400 font-mono text-xs ml-1">{p.codigo}</span>
+                      </td>
+                      <td className="px-4 py-2 text-right font-semibold text-stone-900">{formatSoles(p.total)}</td>
+                      <td className="px-4 py-2 text-right text-stone-600">{p.pctIndividual}%</td>
+                      <td className="px-4 py-2 text-right text-stone-600">{p.pctAcumulado}%</td>
+                      <td className="px-4 py-2 text-center">
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.enEl80 ? "bg-red-100 text-red-700" : "bg-stone-100 text-stone-500"}`}>
+                          {p.enEl80 ? "80%" : "20%"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      ) : (
+      <>
       {showForm && (
         <div className="bg-white rounded-lg border border-stone-200 shadow-sm p-4 space-y-3">
           {productos.length === 0 ? (
@@ -134,6 +222,7 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
                   <p className="text-xs text-stone-400 mt-1">
                     Tipo: {producto.tipo} · Stock actual: {producto.stock} {producto.unidad}
                     {producto.costoUnitario != null && <> · Costo actual: {formatSoles(producto.costoUnitario)} (promedio)</>}
+                    {producto.precioMinimo != null && <> · Precio mínimo actual: {formatSoles(producto.precioMinimo)}</>}
                   </p>
                 )}
               </div>
@@ -149,6 +238,13 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
                   <input type="number" min="0" step="0.5" value={costoUnitario} onChange={(e) => setCostoUnitario(e.target.value)} placeholder="0.00"
                     className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">Precio mínimo de venta (S/, opcional)</label>
+                <input type="number" min="0" step="0.5" value={precioMinimo} onChange={(e) => setPrecioMinimo(e.target.value)} placeholder="Dejar vacío para no cambiar el mínimo actual"
+                  className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+                <p className="text-xs text-stone-400 mt-1">Si lo defines, Ventas avisará si alguien intenta vender este producto por debajo de este precio.</p>
               </div>
 
               <div className="flex items-center justify-between bg-stone-50 rounded-lg px-3 py-2">
@@ -214,6 +310,8 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
             );
           })}
         </div>
+      )}
+      </>
       )}
     </div>
   );

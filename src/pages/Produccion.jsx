@@ -1,13 +1,13 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
-  Plus, XCircle, Trash2,
+  Plus, XCircle, Trash2, ClipboardList, CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro } from "../firestoreSync.js";
 
-export default function Produccion({ productos, movimientos, compras, producciones, onSave, showToast }) {
-  const [tab, setTab] = useState("producir"); // "producir" | "recetas"
+export default function Produccion({ productos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol }) {
+  const [tab, setTab] = useState("producir"); // "producir" | "recetas" | "pedidos"
 
   const terminados = productos.filter((p) => p.tipo === "Terminado" || p.tipo === "En proceso");
   const materiasPrimas = productos.filter((p) => p.tipo === "Materia prima");
@@ -28,10 +28,18 @@ export default function Produccion({ productos, movimientos, compras, produccion
         >
           Fichas técnicas
         </button>
+        <button
+          onClick={() => setTab("pedidos")}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 transition inline-flex items-center gap-1.5 ${tab === "pedidos" ? "border-red-600 text-red-600" : "border-transparent text-stone-500 hover:text-stone-700"}`}
+        >
+          <ClipboardList size={15} /> Pedidos
+        </button>
       </div>
 
       {tab === "recetas" ? (
         <RecetasEditor productos={productos} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} />
+      ) : tab === "pedidos" ? (
+        <PedidosPanel productos={productos} movimientos={movimientos} ventas={ventas} producciones={producciones} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} />
       ) : (
         <ProducirForm productos={productos} movimientos={movimientos} producciones={producciones} terminados={terminados} onSave={onSave} showToast={showToast} />
       )}
@@ -374,3 +382,334 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
   );
 }
 
+
+const ETAPAS = ["Tomado", "Corte", "Costura", "Acabado", "Completado"];
+
+function PedidosPanel({ productos, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol }) {
+  const [showForm, setShowForm] = useState(false);
+  const [cliente, setCliente] = useState("");
+  const [productoId, setProductoId] = useState("");
+  const [cantidad, setCantidad] = useState("");
+  const [precioCotizado, setPrecioCotizado] = useState("");
+  const [fechaEntrega, setFechaEntrega] = useState("");
+  const [error, setError] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [completandoId, setCompletandoId] = useState(null);
+
+  const producto = terminados.find((p) => p.id === productoId);
+  const cant = Number(cantidad) || 0;
+  const precio = Number(precioCotizado) || 0;
+
+  function reset() {
+    setCliente(""); setProductoId(""); setCantidad(""); setPrecioCotizado(""); setFechaEntrega(""); setError("");
+  }
+
+  // Tomar un pedido NO mueve stock todavía — es solo seguimiento (cliente,
+  // precio cotizado, fecha de entrega). El stock y el costo real recién se
+  // mueven cuando el pedido se marca como "Completado" (ver más abajo).
+  async function handleCrear(e) {
+    e.preventDefault();
+    if (enviando) return;
+    if (!cliente.trim()) return setError("Ingresa el nombre del cliente.");
+    if (!productoId) return setError("Selecciona qué producto se va a fabricar.");
+    if (!cantidad || cant <= 0) return setError("Ingresa una cantidad válida, mayor a cero.");
+    if (!precioCotizado || precio < 0) return setError("Ingresa el precio cotizado (total del pedido).");
+    if (!fechaEntrega) return setError("Ingresa la fecha de entrega comprometida.");
+    if (!producto.receta || producto.receta.length === 0) {
+      return setError("Este producto no tiene una Ficha técnica definida todavía. Ve a la pestaña 'Fichas técnicas' primero.");
+    }
+
+    setEnviando(true);
+    setError("");
+    try {
+      const nuevoPedido = {
+        id: `PED${Date.now()}`, fecha: todayStr(), cliente: cliente.trim(),
+        productoId, codigo: producto.codigo, producto: producto.producto, talla: producto.talla,
+        cantidad: cant, precioCotizado: precio, fechaEntrega, etapa: "Tomado",
+      };
+      await onSave(productos, movimientos, ventas, undefined, producciones, [...pedidos, nuevoPedido]);
+      showToast("success", `Pedido de ${cliente.trim()} registrado.`);
+      reset();
+      setShowForm(false);
+    } catch (err) {
+      setError("No se pudo registrar el pedido: " + (err && err.message ? err.message : String(err)));
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function avanzarEtapa(pedido, nuevaEtapa) {
+    if (nuevaEtapa === "Completado") {
+      return completarPedido(pedido);
+    }
+    const nuevosPedidos = pedidos.map((p) => (p.id === pedido.id ? { ...p, etapa: nuevaEtapa } : p));
+    await onSave(productos, movimientos, ventas, undefined, producciones, nuevosPedidos);
+    showToast("success", `Pedido de ${pedido.cliente} ahora en etapa "${nuevaEtapa}".`);
+  }
+
+  // Al completar un pedido pasan DOS cosas de negocio a la vez: se
+  // fabrica (consume insumos según la Ficha técnica, como en Producir) y
+  // se entrega al cliente (eso es una venta: descuenta el stock recién
+  // producido y registra el ingreso). Todo en una sola transacción, para
+  // que no quede "a medias" si algo falla a mitad de camino.
+  async function completarPedido(pedido) {
+    setCompletandoId(pedido.id);
+    try {
+      let margenFinal = 0;
+      await operarInventarioSeguro(["productos", "movimientos", "producciones", "ventas", "pedidos"], (actuales) => {
+        const terminadoReal = actuales.productos.find((p) => p.id === pedido.productoId);
+        if (!terminadoReal) throw new Error("Ese producto ya no existe en el catálogo.");
+        const receta = terminadoReal.receta || [];
+        if (receta.length === 0) throw new Error("Este producto ya no tiene una Ficha técnica definida.");
+
+        const consumo = receta.map((r) => {
+          const mp = actuales.productos.find((p) => p.id === r.materiaPrimaId);
+          const necesario = round2(r.cantidadPorUnidad * pedido.cantidad);
+          return { materiaPrimaId: r.materiaPrimaId, materiaPrima: mp, necesario, costoUnitarioMP: mp?.costoUnitario ?? null };
+        });
+        const faltante = consumo.find((c) => !c.materiaPrima || c.materiaPrima.stock < c.necesario);
+        if (faltante) {
+          const nombre = faltante.materiaPrima ? faltante.materiaPrima.producto : "un insumo de la ficha técnica";
+          const disponible = faltante.materiaPrima ? faltante.materiaPrima.stock : 0;
+          throw new Error(`Stock insuficiente de ${nombre}. Ahora mismo solo hay ${disponible}.`);
+        }
+
+        const costoTotalReal = round2(consumo.reduce((s, c) => s + (c.costoUnitarioMP || 0) * c.necesario, 0));
+        const costoUnitarioReal = pedido.cantidad > 0 ? round2(costoTotalReal / pedido.cantidad) : 0;
+        const stockAnterior = terminadoReal.stock;
+        const costoAnterior = terminadoReal.costoUnitario;
+        const nuevoCostoPromedio = costoAnterior != null && stockAnterior > 0
+          ? round2((stockAnterior * costoAnterior + pedido.cantidad * costoUnitarioReal) / (stockAnterior + pedido.cantidad))
+          : costoUnitarioReal;
+
+        // Stock: se descuentan los insumos; el producto terminado sube y
+        // baja en el mismo movimiento porque se fabrica y se entrega en el
+        // acto — el stock general de terminado no cambia, pero sí su costo
+        // promedio (por eso se recalcula) y sí queda registro de ambos pasos.
+        const nuevosProductos = actuales.productos.map((p) => {
+          if (p.id === pedido.productoId) return { ...p, costoUnitario: nuevoCostoPromedio };
+          const consumido = consumo.find((c) => c.materiaPrimaId === p.id);
+          if (consumido) return { ...p, stock: round2(p.stock - consumido.necesario) };
+          return p;
+        });
+
+        const nuevosMovimientos = [
+          ...actuales.movimientos,
+          ...consumo.map((c) => ({
+            id: `M${Date.now()}-${c.materiaPrimaId}`, fecha: todayStr(), tipo: "SALIDA", productoId: c.materiaPrimaId,
+            productoNombre: `${c.materiaPrima.producto}${c.materiaPrima.talla !== "Única" ? " - " + c.materiaPrima.talla : ""}`,
+            cantidad: c.necesario, motivo: `Consumo para pedido de ${pedido.cliente}`,
+          })),
+          {
+            id: `M${Date.now()}-prod`, fecha: todayStr(), tipo: "ENTRADA", productoId: pedido.productoId,
+            productoNombre: `${terminadoReal.producto}${terminadoReal.talla !== "Única" ? " - " + terminadoReal.talla : ""}`,
+            cantidad: pedido.cantidad, motivo: `Producción para pedido de ${pedido.cliente}`,
+          },
+          {
+            id: `M${Date.now()}-venta`, fecha: todayStr(), tipo: "VENTA", productoId: pedido.productoId,
+            productoNombre: `${terminadoReal.producto}${terminadoReal.talla !== "Única" ? " - " + terminadoReal.talla : ""}`,
+            cantidad: pedido.cantidad, motivo: `Entrega de pedido a ${pedido.cliente}`,
+          },
+        ];
+
+        const produccion = {
+          id: `P${Date.now()}`, fecha: todayStr(), productoId: pedido.productoId, codigo: terminadoReal.codigo,
+          producto: terminadoReal.producto, talla: terminadoReal.talla, cantidad: pedido.cantidad,
+          costoUnitario: costoUnitarioReal, total: costoTotalReal,
+          insumos: consumo.map((c) => ({ materiaPrimaId: c.materiaPrimaId, cantidad: c.necesario, costoUnitario: c.costoUnitarioMP })),
+        };
+
+        const precioUnitario = pedido.cantidad > 0 ? round2(pedido.precioCotizado / pedido.cantidad) : 0;
+        const venta = {
+          id: `V${Date.now()}`, fecha: todayStr(), idProducto: terminadoReal.codigo, producto: terminadoReal.producto,
+          cantidad: pedido.cantidad, talla: terminadoReal.talla, descripcion: `Pedido - ${pedido.cliente}`,
+          precio: precioUnitario, efectivo: 0, yape: 0, tarjeta: 0, total: pedido.precioCotizado,
+          costoUnitario: costoUnitarioReal, pedidoId: pedido.id,
+        };
+
+        margenFinal = round2(pedido.precioCotizado - costoTotalReal);
+        const nuevosPedidos = actuales.pedidos.map((p) =>
+          p.id === pedido.id
+            ? { ...p, etapa: "Completado", completadoEn: todayStr(), costoProduccion: costoTotalReal, margen: margenFinal }
+            : p
+        );
+
+        return {
+          productos: nuevosProductos,
+          movimientos: nuevosMovimientos,
+          producciones: [...actuales.producciones, produccion],
+          ventas: [...actuales.ventas, venta],
+          pedidos: nuevosPedidos,
+        };
+      });
+
+      showToast("success", `Pedido de ${pedido.cliente} completado y entregado. Margen: ${formatSoles(margenFinal)}.`);
+    } catch (err) {
+      showToast("error", "No se pudo completar el pedido: " + (err && err.message ? err.message : String(err)));
+    } finally {
+      setCompletandoId(null);
+    }
+  }
+
+  const pendientes = useMemo(
+    () => pedidos.filter((p) => p.etapa !== "Completado").sort((a, b) => (a.fechaEntrega < b.fechaEntrega ? -1 : 1)),
+    [pedidos]
+  );
+  const completados = useMemo(
+    () => pedidos.filter((p) => p.etapa === "Completado").sort((a, b) => (a.completadoEn < b.completadoEn ? 1 : -1)),
+    [pedidos]
+  );
+
+  function diasParaEntrega(fechaEntrega) {
+    const dias = Math.ceil((new Date(fechaEntrega + "T00:00:00") - new Date(todayStr() + "T00:00:00")) / 86400000);
+    return dias;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-stone-700">Pedidos de clientes</h2>
+        <button
+          onClick={() => setShowForm((s) => !s)}
+          className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition inline-flex items-center gap-1.5"
+        >
+          <Plus size={15} /> Tomar pedido
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="bg-white rounded-lg border border-stone-200 shadow-sm p-4 space-y-3">
+          {terminados.length === 0 ? (
+            <p className="text-sm text-stone-500">No hay productos Terminado/En proceso en el catálogo todavía.</p>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">Cliente</label>
+                <input value={cliente} onChange={(e) => setCliente(e.target.value)} placeholder="Nombre de la empresa o persona"
+                  className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-stone-600 mb-1">Producto a fabricar</label>
+                <SelectorProducto productos={terminados} value={productoId} onChange={setProductoId} />
+                {producto && (!producto.receta || producto.receta.length === 0) && (
+                  <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                    <AlertTriangle size={12} /> Este producto no tiene Ficha técnica todavía — defínela primero en esa pestaña.
+                  </p>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Cantidad</label>
+                  <input type="number" min="1" value={cantidad} onChange={(e) => setCantidad(e.target.value)} placeholder="0"
+                    className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Precio cotizado (S/, total)</label>
+                  <input type="number" min="0" step="0.5" value={precioCotizado} onChange={(e) => setPrecioCotizado(e.target.value)} placeholder="0.00"
+                    className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Fecha de entrega</label>
+                  <input type="date" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white focus:outline-none focus:ring-2 focus:ring-red-500" />
+                </div>
+              </div>
+
+              {error && (
+                <p className="text-sm text-red-600 flex items-center gap-1.5">
+                  <XCircle size={14} /> {error}
+                </p>
+              )}
+
+              <button type="button" onClick={handleCrear} disabled={enviando}
+                className="w-full py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition">
+                {enviando ? "Guardando..." : "Registrar pedido"}
+              </button>
+              <p className="text-xs text-stone-400">Tomar el pedido todavía no descuenta materia prima — eso pasa recién cuando lo marques como "Completado".</p>
+            </>
+          )}
+        </div>
+      )}
+
+      {pendientes.length === 0 ? (
+        <p className="text-sm text-stone-400 py-6 text-center">No hay pedidos pendientes.</p>
+      ) : (
+        <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
+          <div className="bg-stone-50 px-4 py-2 border-b border-stone-200">
+            <span className="text-sm font-semibold text-stone-700">Pendientes ({pendientes.length}) — ordenados por fecha de entrega más próxima</span>
+          </div>
+          <div className="divide-y divide-stone-100">
+            {pendientes.map((p) => {
+              const dias = diasParaEntrega(p.fechaEntrega);
+              const urgente = dias <= 3;
+              const vencido = dias < 0;
+              return (
+                <div key={p.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-stone-800">{p.cliente}</p>
+                    <p className="text-xs text-stone-500">
+                      {p.producto}{p.talla !== "Única" ? ` - ${p.talla}` : ""} · {p.cantidad} unid. · Entrega: {formatFecha(p.fechaEntrega)}
+                    </p>
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${
+                    vencido ? "bg-red-100 text-red-700" : urgente ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-stone-500"
+                  }`}>
+                    {vencido ? `Vencido hace ${Math.abs(dias)}d` : dias === 0 ? "Entrega hoy" : `Faltan ${dias}d`}
+                  </span>
+                  <select
+                    value={p.etapa}
+                    onChange={(e) => avanzarEtapa(p, e.target.value)}
+                    disabled={completandoId === p.id}
+                    className="px-2 py-1.5 rounded-lg border border-stone-300 text-xs text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
+                  >
+                    {ETAPAS.map((et) => (
+                      <option key={et} value={et}>{et}</option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {completados.length > 0 && (
+        <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
+          <div className="bg-stone-50 px-4 py-2 border-b border-stone-200">
+            <span className="text-sm font-semibold text-stone-700">Completados</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-stone-500 border-b border-stone-100">
+                  <th className="text-left px-4 py-1.5 font-medium">Cliente</th>
+                  <th className="text-left px-4 py-1.5 font-medium">Producto</th>
+                  <th className="text-right px-4 py-1.5 font-medium">Cant.</th>
+                  <th className="text-right px-4 py-1.5 font-medium">Precio cotizado</th>
+                  {rol === "gerente" && <th className="text-right px-4 py-1.5 font-medium">Margen</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {completados.map((p) => (
+                  <tr key={p.id} className="border-b border-stone-50 last:border-0">
+                    <td className="px-4 py-1.5 text-stone-800 inline-flex items-center gap-1.5">
+                      <CheckCircle2 size={13} className="text-green-600" /> {p.cliente}
+                    </td>
+                    <td className="px-4 py-1.5 text-stone-600">{p.producto}{p.talla !== "Única" ? ` - ${p.talla}` : ""}</td>
+                    <td className="px-4 py-1.5 text-right text-stone-700">{p.cantidad}</td>
+                    <td className="px-4 py-1.5 text-right font-semibold text-stone-900">{formatSoles(p.precioCotizado)}</td>
+                    {rol === "gerente" && (
+                      <td className={`px-4 py-1.5 text-right font-semibold ${p.margen >= 0 ? "text-green-700" : "text-red-600"}`}>
+                        {formatSoles(p.margen)}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
