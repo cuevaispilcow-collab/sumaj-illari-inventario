@@ -58,14 +58,21 @@ export async function guardarColeccion(nombreDoc, items) {
 // ese mismo objeto con los arrays ya actualizados. Si algo no es
 // válido (ej. no hay stock suficiente), debe lanzar un Error con un
 // mensaje entendible — en ese caso no se guarda absolutamente nada.
-export async function operarInventarioSeguro(colecciones, calcular) {
-  const refs = Object.fromEntries(colecciones.map((c) => [c, doc(db, "sumaj-illari", c)]));
+//
+// `soloLectura` (opcional): colecciones que la operación necesita
+// CONSULTAR pero no modificar (ej. "modelos", para saber el tipo o
+// nombre de un producto). Se leen con la misma garantía de datos
+// frescos, pero no hace falta devolverlas en `calcular` — no se
+// reescriben.
+export async function operarInventarioSeguro(colecciones, calcular, soloLectura = []) {
+  const todas = [...colecciones, ...soloLectura];
+  const refs = Object.fromEntries(todas.map((c) => [c, doc(db, "sumaj-illari", c)]));
 
   return runTransaction(db, async (transaction) => {
     // Regla de Firestore: TODAS las lecturas de una transacción deben
     // hacerse antes que cualquier escritura.
     const entradas = await Promise.all(
-      colecciones.map(async (c) => {
+      todas.map(async (c) => {
         const snap = await transaction.get(refs[c]);
         return [c, snap.exists() ? snap.data().items : []];
       })

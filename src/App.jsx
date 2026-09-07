@@ -55,6 +55,7 @@ class ErrorBoundary extends React.Component {
 
 function SumajIllariApp({ rol, cerrarSesion }) {
   const [productos, setProductos] = useState(null);
+  const [modelos, setModelos] = useState(null);
   const [movimientos, setMovimientos] = useState(null);
   const [ventas, setVentas] = useState(null);
   const [compras, setCompras] = useState(null);
@@ -70,9 +71,9 @@ function SumajIllariApp({ rol, cerrarSesion }) {
   // vendedora, computadora de la gerente, etc.) guarda un cambio, todos
   // los demás lo reciben automáticamente aquí, sin recargar la página.
   useEffect(() => {
-    let cargados = { productos: false, movimientos: false, ventas: false, compras: false, producciones: false, pedidos: false };
+    let cargados = { productos: false, modelos: false, movimientos: false, ventas: false, compras: false, producciones: false, pedidos: false };
     const marcarListo = () => {
-      if (cargados.productos && cargados.movimientos && cargados.ventas && cargados.compras && cargados.producciones && cargados.pedidos) setReady(true);
+      if (cargados.productos && cargados.modelos && cargados.movimientos && cargados.ventas && cargados.compras && cargados.producciones && cargados.pedidos) setReady(true);
     };
     const manejarError = (error) => {
       setErrorCarga(
@@ -84,6 +85,11 @@ function SumajIllariApp({ rol, cerrarSesion }) {
     const unsub1 = escucharColeccion("productos", (items) => {
       setProductos(items);
       cargados.productos = true;
+      marcarListo();
+    }, manejarError);
+    const unsubModelos = escucharColeccion("modelos", (items) => {
+      setModelos(items);
+      cargados.modelos = true;
       marcarListo();
     }, manejarError);
     const unsub2 = escucharColeccion("movimientos", (items) => {
@@ -111,7 +117,7 @@ function SumajIllariApp({ rol, cerrarSesion }) {
       cargados.pedidos = true;
       marcarListo();
     }, manejarError);
-    return () => { unsub1(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); };
+    return () => { unsub1(); unsubModelos(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); };
   }, []);
 
   // Red de seguridad: si algo falla en segundo plano (por ejemplo, el guardado),
@@ -163,6 +169,32 @@ function SumajIllariApp({ rol, cerrarSesion }) {
     return Promise.resolve();
   }
 
+  // Guarda los "Modelos" (nombre, categoría, tipo, descripción, unidad —
+  // lo que comparten todas las tallas de un mismo código). Aparte de
+  // persist() porque ningún flujo de stock (Ventas, Compras, Movimientos,
+  // Producción) necesita tocar esto — solo Productos y Nuevo producto.
+  function persistModelos(newModelos) {
+    setModelos(newModelos);
+    (async () => {
+      try {
+        await guardarColeccion("modelos", newModelos);
+      } catch (e) {
+        showToast("error", "Se guardó en pantalla, pero el respaldo del modelo tardó demasiado.");
+      }
+    })();
+    return Promise.resolve();
+  }
+
+  // Lo que ve cada pantalla: cada talla (producto) "completa" con los
+  // datos de su modelo ya pegados encima (nombre, categoría, tipo,
+  // descripción, unidad). Así, el resto de la app sigue viendo un solo
+  // objeto por producto, igual que antes de separar modelo y talla.
+  const productosCompletos = React.useMemo(() => {
+    if (!productos) return productos;
+    const modelosPorCodigo = Object.fromEntries((modelos || []).map((m) => [m.codigo, m]));
+    return productos.map((p) => ({ ...(modelosPorCodigo[p.codigo] || {}), ...p }));
+  }, [productos, modelos]);
+
   function showToast(type, msg) {
     setToast({ type, msg });
     setTimeout(() => setToast(null), 3000);
@@ -170,6 +202,7 @@ function SumajIllariApp({ rol, cerrarSesion }) {
 
   async function resetAll() {
     await persist([], [], [], [], [], []);
+    await persistModelos([]);
     setConfirmReset(false);
     showToast("success", "Todo se reinició. Catálogo, movimientos, ventas, compras, producción y pedidos en cero.");
   }
@@ -182,7 +215,7 @@ function SumajIllariApp({ rol, cerrarSesion }) {
     const wb = XLSX.utils.book_new();
 
     const wsProductos = XLSX.utils.json_to_sheet(
-      productos.map((p) => ({
+      productosCompletos.map((p) => ({
         ID_Producto: p.id, Codigo: p.codigo, Tipo: p.tipo, Categoria: p.categoria,
         Producto: p.producto, Descripcion: p.descripcion, Talla: p.talla, Unidad: p.unidad,
         Stock_Actual: p.stock, Stock_Minimo: p.stockMinimo ?? "", Costo_Unitario_Promedio: p.costoUnitario ?? "",
@@ -261,27 +294,27 @@ function SumajIllariApp({ rol, cerrarSesion }) {
       <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} cerrarSesion={cerrarSesion} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
-          {vistaSegura === "dashboard" && <Dashboard productos={productos} movimientos={movimientos} ventas={ventas} setView={setView} />}
+          {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientos} ventas={ventas} setView={setView} />}
           {vistaSegura === "productos" && (
-            <Productos productos={productos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} />
+            <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} />
           )}
           {vistaSegura === "ventas" && (
-            <Ventas productos={productos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} />
+            <Ventas productos={productosCompletos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} />
           )}
-          {vistaSegura === "demanda" && <Demanda ventas={ventas} productos={productos} />}
-          {vistaSegura === "analisis" && <Analisis productos={productos} movimientos={movimientos} ventas={ventas} />}
-          {vistaSegura === "margenes" && <Margenes productos={productos} ventas={ventas} />}
+          {vistaSegura === "demanda" && <Demanda ventas={ventas} productos={productosCompletos} />}
+          {vistaSegura === "analisis" && <Analisis productos={productosCompletos} movimientos={movimientos} ventas={ventas} />}
+          {vistaSegura === "margenes" && <Margenes productos={productosCompletos} ventas={ventas} />}
           {vistaSegura === "movimientos" && (
-            <Movimientos productos={productos} movimientos={movimientos} onSave={persist} showToast={showToast} />
+            <Movimientos productos={productosCompletos} movimientos={movimientos} onSave={persist} showToast={showToast} />
           )}
           {vistaSegura === "compras" && (
-            <Compras productos={productos} movimientos={movimientos} compras={compras} onSave={persist} showToast={showToast} />
+            <Compras productos={productosCompletos} movimientos={movimientos} compras={compras} onSave={persist} showToast={showToast} />
           )}
           {vistaSegura === "produccion" && (
-            <Produccion productos={productos} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} />
+            <Produccion productos={productosCompletos} variantes={productos} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} />
           )}
           {vistaSegura === "nuevo" && (
-            <NuevoProducto productos={productos} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} />
+            <NuevoProducto productos={productos} modelos={modelos} onSaveModelos={persistModelos} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} />
           )}
         </div>
       </main>
