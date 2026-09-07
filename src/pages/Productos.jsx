@@ -6,7 +6,7 @@ import { TIPOS } from "../utils/constants.js";
 import { formatSoles } from "../utils/format.js";
 import EmptyState from "../components/EmptyState.jsx";
 
-export default function Productos({ productos, movimientos, ventas, onSave, showToast, setView, rol }) {
+export default function Productos({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, onSave, showToast, setView, rol }) {
   const [q, setQ] = useState("");
   const [tipo, setTipo] = useState("todos");
   const [editingId, setEditingId] = useState(null);
@@ -36,8 +36,8 @@ export default function Productos({ productos, movimientos, ventas, onSave, show
       showToast("error", "El stock mínimo debe ser un número válido, 0 o mayor.");
       return;
     }
-    const newProductos = productos.map((x) => (x.id === p.id ? { ...x, stockMinimo: val } : x));
-    await onSave(newProductos, movimientos);
+    const newVariantes = variantes.map((x) => (x.id === p.id ? { ...x, stockMinimo: val } : x));
+    await onSave(newVariantes, movimientos);
     setEditingId(null);
     showToast("success", "Stock mínimo actualizado.");
   }
@@ -57,8 +57,8 @@ export default function Productos({ productos, movimientos, ventas, onSave, show
       showToast("error", "El umbral de rotación debe ser un número mayor a cero.");
       return;
     }
-    const newProductos = productos.map((x) => (x.id === p.id ? { ...x, diasRotacionAlerta: val } : x));
-    await onSave(newProductos, movimientos);
+    const newVariantes = variantes.map((x) => (x.id === p.id ? { ...x, diasRotacionAlerta: val } : x));
+    await onSave(newVariantes, movimientos);
     setEditingRotId(null);
     showToast("success", "Umbral de rotación actualizado.");
   }
@@ -241,6 +241,9 @@ export default function Productos({ productos, movimientos, ventas, onSave, show
         <EditarProductoModal
           producto={editandoProducto}
           productos={productos}
+          variantes={variantes}
+          modelos={modelos}
+          onSaveModelos={onSaveModelos}
           movimientos={movimientos}
           ventas={ventas}
           onSave={onSave}
@@ -253,7 +256,7 @@ export default function Productos({ productos, movimientos, ventas, onSave, show
 }
 
 
-function EditarProductoModal({ producto, productos, movimientos, ventas, onSave, showToast, onClose }) {
+function EditarProductoModal({ producto, productos, variantes, modelos, onSaveModelos, movimientos, ventas, onSave, showToast, onClose }) {
   const [codigo, setCodigo] = useState(producto.codigo);
   const [categoria, setCategoria] = useState(producto.categoria);
   const [nombre, setNombre] = useState(producto.producto);
@@ -267,15 +270,21 @@ function EditarProductoModal({ producto, productos, movimientos, ventas, onSave,
   const [guardando, setGuardando] = useState(false);
   const [confirmarBorrar, setConfirmarBorrar] = useState(false);
 
+  // Si hay otras tallas con este mismo código, el código no se puede
+  // renombrar desde aquí (afectaría a las tallas hermanas). Para
+  // renombrarlo, hazlo cuando sea la única talla de ese modelo.
+  const tallasHermanas = variantes.filter((v) => v.codigo === producto.codigo && v.id !== producto.id);
+  const puedeEditarCodigo = tallasHermanas.length === 0;
+
   async function handleEliminar() {
     // Al eliminar, también se quita de cualquier Ficha técnica que lo usara
     // como insumo (si no, quedaría una referencia rota "producto eliminado").
-    const nuevosProductos = productos
+    const nuevasVariantes = variantes
       .filter((p) => p.id !== producto.id)
       .map((p) => (p.receta ? { ...p, receta: p.receta.filter((r) => r.materiaPrimaId !== producto.id) } : p));
     try {
       setGuardando(true);
-      await onSave(nuevosProductos, movimientos, ventas);
+      await onSave(nuevasVariantes, movimientos, ventas);
       showToast("success", `Producto "${producto.producto}" eliminado.`);
       onClose();
     } catch (err) {
@@ -290,7 +299,7 @@ function EditarProductoModal({ producto, productos, movimientos, ventas, onSave,
       return;
     }
     const nuevoId = `${codigo.trim()}-${talla.trim() || "Única"}`;
-    const chocaConOtro = productos.some((p) => p.id !== producto.id && p.id === nuevoId);
+    const chocaConOtro = variantes.some((p) => p.id !== producto.id && p.id === nuevoId);
     if (chocaConOtro) {
       setError(`Ya existe otro producto con código "${codigo.trim()}" y talla "${talla.trim() || "Única"}".`);
       return;
@@ -306,13 +315,23 @@ function EditarProductoModal({ producto, productos, movimientos, ventas, onSave,
       return;
     }
 
-    const actualizado = {
-      ...producto,
-      id: nuevoId, codigo: codigo.trim(), categoria: categoria.trim(), producto: nombre.trim(),
-      descripcion: descripcion.trim(), talla: talla.trim() || "Única", unidad,
-      stock: st, stockMinimo: sm, tipo,
+    // Campos de Modelo (compartidos por TODAS las tallas de este código):
+    // se actualiza el modelo una sola vez, y automáticamente aplica a
+    // todas sus tallas — así nunca quedan desincronizadas entre sí.
+    const nuevosModelos = modelos.map((m) =>
+      m.codigo === producto.codigo
+        ? { ...m, codigo: codigo.trim(), categoria: categoria.trim(), producto: nombre.trim(), descripcion: descripcion.trim(), unidad, tipo }
+        : m
+    );
+
+    // Campos propios de esta talla únicamente.
+    const original = variantes.find((v) => v.id === producto.id);
+    const varianteActualizada = {
+      ...original,
+      id: nuevoId, codigo: codigo.trim(), talla: talla.trim() || "Única",
+      stock: st, stockMinimo: sm,
     };
-    let nuevosProductos = productos.map((p) => (p.id === producto.id ? actualizado : p));
+    let nuevasVariantes = variantes.map((p) => (p.id === producto.id ? varianteActualizada : p));
 
     // Si cambió el ID (código o talla), mantenemos el historial enlazado
     // actualizando las referencias en movimientos, ventas Y en las Fichas
@@ -322,10 +341,10 @@ function EditarProductoModal({ producto, productos, movimientos, ventas, onSave,
     if (nuevoId !== producto.id) {
       nuevosMovimientos = movimientos.map((m) =>
         m.productoId === producto.id
-          ? { ...m, productoId: nuevoId, productoNombre: `${actualizado.producto}${actualizado.talla !== "Única" ? " - " + actualizado.talla : ""}` }
+          ? { ...m, productoId: nuevoId, productoNombre: `${nombre.trim()}${varianteActualizada.talla !== "Única" ? " - " + varianteActualizada.talla : ""}` }
           : m
       );
-      nuevosProductos = nuevosProductos.map((p) =>
+      nuevasVariantes = nuevasVariantes.map((p) =>
         p.receta
           ? { ...p, receta: p.receta.map((r) => (r.materiaPrimaId === producto.id ? { ...r, materiaPrimaId: nuevoId } : r)) }
           : p
@@ -337,7 +356,8 @@ function EditarProductoModal({ producto, productos, movimientos, ventas, onSave,
 
     try {
       setGuardando(true);
-      await onSave(nuevosProductos, nuevosMovimientos, nuevasVentas);
+      await onSaveModelos(nuevosModelos);
+      await onSave(nuevasVariantes, nuevosMovimientos, nuevasVentas);
       showToast("success", `Producto "${nombre.trim()}" actualizado.`);
       onClose();
     } catch (err) {
@@ -357,6 +377,11 @@ function EditarProductoModal({ producto, productos, movimientos, ventas, onSave,
           </button>
         </div>
         <div className="p-5 space-y-4">
+          {!puedeEditarCodigo && (
+            <p className="text-xs text-stone-500 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+              Nombre, categoría, tipo, descripción y unidad se aplican a las {tallasHermanas.length + 1} tallas de este modelo (código {producto.codigo}), no solo a esta.
+            </p>
+          )}
           <div>
             <label className="block text-xs font-medium text-stone-600 mb-1">Tipo de inventario</label>
             <div className="grid grid-cols-2 gap-2">
@@ -372,8 +397,9 @@ function EditarProductoModal({ producto, productos, movimientos, ventas, onSave,
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-stone-600 mb-1">Código <span className="text-red-600">*</span></label>
-              <input value={codigo} onChange={(e) => setCodigo(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-500" />
+              <input value={codigo} onChange={(e) => setCodigo(e.target.value)} disabled={!puedeEditarCodigo}
+                title={!puedeEditarCodigo ? "Hay otras tallas con este código — no se puede renombrar desde aquí." : undefined}
+                className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-stone-100 disabled:text-stone-500" />
             </div>
             <div>
               <label className="block text-xs font-medium text-stone-600 mb-1">Categoría <span className="text-red-600">*</span></label>

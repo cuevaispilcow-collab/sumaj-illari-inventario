@@ -6,7 +6,7 @@ import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro } from "../firestoreSync.js";
 
-export default function Produccion({ productos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol }) {
+export default function Produccion({ productos, variantes, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol }) {
   const [tab, setTab] = useState("producir"); // "producir" | "recetas" | "pedidos"
 
   const terminados = productos.filter((p) => p.tipo === "Terminado" || p.tipo === "En proceso");
@@ -37,9 +37,9 @@ export default function Produccion({ productos, movimientos, ventas, compras, pr
       </div>
 
       {tab === "recetas" ? (
-        <RecetasEditor productos={productos} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} />
+        <RecetasEditor productos={productos} variantes={variantes} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} />
       ) : tab === "pedidos" ? (
-        <PedidosPanel productos={productos} movimientos={movimientos} ventas={ventas} producciones={producciones} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} />
+        <PedidosPanel productos={productos} variantes={variantes} movimientos={movimientos} ventas={ventas} producciones={producciones} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} />
       ) : (
         <ProducirForm productos={productos} movimientos={movimientos} producciones={producciones} terminados={terminados} onSave={onSave} showToast={showToast} />
       )}
@@ -48,7 +48,7 @@ export default function Produccion({ productos, movimientos, ventas, compras, pr
 }
 
 
-function RecetasEditor({ productos, terminados, insumosDisponibles, movimientos, onSave, showToast }) {
+function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, movimientos, onSave, showToast }) {
   const [terminadoId, setTerminadoId] = useState("");
   const [materiaPrimaId, setMateriaPrimaId] = useState("");
   const [cantidadPorUnidad, setCantidadPorUnidad] = useState("");
@@ -80,10 +80,13 @@ function RecetasEditor({ productos, terminados, insumosDisponibles, movimientos,
   }
 
   async function guardarReceta(nuevaReceta) {
-    const newProductos = productos.map((p) => (p.id === terminadoId ? { ...p, receta: nuevaReceta } : p));
+    // Se guarda sobre las variantes REALES (sin los campos del modelo
+    // pegados encima), para no terminar copiando nombre/categoría/tipo
+    // dentro de la colección de tallas.
+    const newVariantes = variantes.map((p) => (p.id === terminadoId ? { ...p, receta: nuevaReceta } : p));
     try {
       setGuardando(true);
-      await onSave(newProductos, movimientos);
+      await onSave(newVariantes, movimientos);
       showToast("success", "Ficha técnica actualizada.");
     } catch (err) {
       setError("No se pudo guardar: " + (err && err.message ? err.message : String(err)));
@@ -212,13 +215,15 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
       // algo de estos mismos insumos, esta producción no se guarda con
       // números desactualizados ni deja el stock en negativo.
       await operarInventarioSeguro(["productos", "movimientos", "producciones"], (actuales) => {
-        const terminadoReal = actuales.productos.find((p) => p.id === terminadoId);
+        const modelosPorCodigo = Object.fromEntries(actuales.modelos.map((m) => [m.codigo, m]));
+        const completos = actuales.productos.map((p) => ({ ...(modelosPorCodigo[p.codigo] || {}), ...p }));
+        const terminadoReal = completos.find((p) => p.id === terminadoId);
         if (!terminadoReal) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
         const recetaReal = terminadoReal.receta || [];
         if (recetaReal.length === 0) throw new Error("Este producto ya no tiene una ficha técnica definida.");
 
         const consumoReal = recetaReal.map((r) => {
-          const mp = actuales.productos.find((p) => p.id === r.materiaPrimaId);
+          const mp = completos.find((p) => p.id === r.materiaPrimaId);
           const necesario = round2(r.cantidadPorUnidad * cant);
           return { ...r, materiaPrima: mp, necesario, costoUnitarioMP: mp?.costoUnitario ?? null };
         });
@@ -272,7 +277,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
           movimientos: nuevosMovimientos,
           producciones: [...actuales.producciones, produccion],
         };
-      });
+      }, ["modelos"]);
 
       showToast("success", `Producción registrada. Costo actualizado a ${formatSoles(costoFinal)}.`);
       setTerminadoId(""); setCantidad(""); setError("");
@@ -385,7 +390,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
 
 const ETAPAS = ["Tomado", "Corte", "Costura", "Acabado", "Completado"];
 
-function PedidosPanel({ productos, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol }) {
+function PedidosPanel({ productos, variantes, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol }) {
   const [showForm, setShowForm] = useState(false);
   const [cliente, setCliente] = useState("");
   const [productoId, setProductoId] = useState("");
@@ -427,7 +432,7 @@ function PedidosPanel({ productos, movimientos, ventas, producciones, pedidos, t
         productoId, codigo: producto.codigo, producto: producto.producto, talla: producto.talla,
         cantidad: cant, precioCotizado: precio, fechaEntrega, etapa: "Tomado",
       };
-      await onSave(productos, movimientos, ventas, undefined, producciones, [...pedidos, nuevoPedido]);
+      await onSave(variantes, movimientos, ventas, undefined, producciones, [...pedidos, nuevoPedido]);
       showToast("success", `Pedido de ${cliente.trim()} registrado.`);
       reset();
       setShowForm(false);
@@ -443,7 +448,7 @@ function PedidosPanel({ productos, movimientos, ventas, producciones, pedidos, t
       return completarPedido(pedido);
     }
     const nuevosPedidos = pedidos.map((p) => (p.id === pedido.id ? { ...p, etapa: nuevaEtapa } : p));
-    await onSave(productos, movimientos, ventas, undefined, producciones, nuevosPedidos);
+    await onSave(variantes, movimientos, ventas, undefined, producciones, nuevosPedidos);
     showToast("success", `Pedido de ${pedido.cliente} ahora en etapa "${nuevaEtapa}".`);
   }
 
@@ -457,13 +462,15 @@ function PedidosPanel({ productos, movimientos, ventas, producciones, pedidos, t
     try {
       let margenFinal = 0;
       await operarInventarioSeguro(["productos", "movimientos", "producciones", "ventas", "pedidos"], (actuales) => {
-        const terminadoReal = actuales.productos.find((p) => p.id === pedido.productoId);
+        const modelosPorCodigo = Object.fromEntries(actuales.modelos.map((m) => [m.codigo, m]));
+        const completos = actuales.productos.map((p) => ({ ...(modelosPorCodigo[p.codigo] || {}), ...p }));
+        const terminadoReal = completos.find((p) => p.id === pedido.productoId);
         if (!terminadoReal) throw new Error("Ese producto ya no existe en el catálogo.");
         const receta = terminadoReal.receta || [];
         if (receta.length === 0) throw new Error("Este producto ya no tiene una Ficha técnica definida.");
 
         const consumo = receta.map((r) => {
-          const mp = actuales.productos.find((p) => p.id === r.materiaPrimaId);
+          const mp = completos.find((p) => p.id === r.materiaPrimaId);
           const necesario = round2(r.cantidadPorUnidad * pedido.cantidad);
           return { materiaPrimaId: r.materiaPrimaId, materiaPrima: mp, necesario, costoUnitarioMP: mp?.costoUnitario ?? null };
         });
@@ -541,7 +548,7 @@ function PedidosPanel({ productos, movimientos, ventas, producciones, pedidos, t
           ventas: [...actuales.ventas, venta],
           pedidos: nuevosPedidos,
         };
-      });
+      }, ["modelos"]);
 
       showToast("success", `Pedido de ${pedido.cliente} completado y entregado. Margen: ${formatSoles(margenFinal)}.`);
     } catch (err) {

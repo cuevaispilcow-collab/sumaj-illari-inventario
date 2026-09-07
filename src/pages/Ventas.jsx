@@ -53,8 +53,9 @@ export default function Ventas({ productos, movimientos, ventas, onSave, showToa
     setError("");
     try {
       await operarInventarioSeguro(["productos", "ventas", "movimientos"], (actuales) => {
-        const prodReal = actuales.productos.find((p) => p.id === productoId);
-        if (!prodReal) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
+        const prodRealVariante = actuales.productos.find((p) => p.id === productoId);
+        if (!prodRealVariante) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
+        const prodReal = { ...(actuales.modelos.find((m) => m.codigo === prodRealVariante.codigo) || {}), ...prodRealVariante };
         if (prodReal.stock < cant) {
           throw new Error(`Stock insuficiente. Ahora mismo solo hay ${prodReal.stock} ${prodReal.unidad} (puede que alguien más acabe de vender).`);
         }
@@ -80,7 +81,7 @@ export default function Ventas({ productos, movimientos, ventas, onSave, showToa
           ventas: [...actuales.ventas, venta],
           movimientos: [...actuales.movimientos, mov],
         };
-      });
+      }, ["modelos"]);
 
       showToast("success", "Venta registrada. Stock actualizado.");
       reset();

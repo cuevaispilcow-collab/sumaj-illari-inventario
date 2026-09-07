@@ -50,8 +50,9 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
       // dejaría el costo promedio mal calculado — por eso se recalcula
       // adentro de la transacción, con el stock real del servidor.
       await operarInventarioSeguro(["productos", "compras", "movimientos"], (actuales) => {
-        const prodReal = actuales.productos.find((p) => p.id === productoId);
-        if (!prodReal) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
+        const variante = actuales.productos.find((p) => p.id === productoId);
+        if (!variante) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
+        const prodReal = { ...(actuales.modelos.find((m) => m.codigo === variante.codigo) || {}), ...variante };
 
         const stockAnterior = prodReal.stock;
         const costoAnterior = prodReal.costoUnitario;
@@ -81,7 +82,7 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
           compras: [...actuales.compras, compra],
           movimientos: [...actuales.movimientos, mov],
         };
-      });
+      }, ["modelos"]);
 
       showToast("success", `Compra registrada. Costo actualizado a ${formatSoles(costoFinal)}.`);
       reset();
