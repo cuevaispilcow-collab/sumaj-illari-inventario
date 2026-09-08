@@ -2,7 +2,7 @@
 // "gerente" ve todo. "vendedora" solo ve lo definido abajo.
 
 export const SECCIONES_POR_ROL = {
-  gerente: ["dashboard", "productos", "ventas", "demanda", "analisis", "margenes", "movimientos", "compras", "produccion", "nuevo"],
+  gerente: ["dashboard", "productos", "ventas", "demanda", "analisis", "margenes", "movimientos", "compras", "produccion", "auditoria", "nuevo"],
   vendedora: ["productos", "ventas", "movimientos", "nuevo"],
 };
 

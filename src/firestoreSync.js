@@ -87,3 +87,15 @@ export async function operarInventarioSeguro(colecciones, calcular, soloLectura 
     return nuevos;
   });
 }
+
+// ============================================================
+// Auditoría: un registro breve de "quién hizo qué y cuándo",
+// para operaciones que NO ya pasan por operarInventarioSeguro
+// (crear/editar/eliminar productos, fichas técnicas). Usa la misma
+// transacción segura de arriba para no perder registros si dos
+// personas hacen algo al mismo tiempo.
+export async function registrarAuditoria(entrada) {
+  return operarInventarioSeguro(["auditoria"], (actuales) => ({
+    auditoria: [...actuales.auditoria, { id: `A${Date.now()}`, ...entrada }],
+  }));
+}

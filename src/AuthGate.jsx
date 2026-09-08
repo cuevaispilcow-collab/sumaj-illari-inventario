@@ -14,6 +14,7 @@ import { ChainLock } from "./Logo.jsx";
 export default function AuthGate({ children }) {
   const [user, setUser] = useState(undefined); // undefined = cargando, null = sin sesión
   const [rol, setRol] = useState(null);
+  const [nombre, setNombre] = useState(null);
   const [error, setError] = useState("");
   const [cargandoLogin, setCargandoLogin] = useState(false);
   const [email, setEmail] = useState("");
@@ -30,11 +31,15 @@ export default function AuthGate({ children }) {
           const crudo = snap.exists() ? snap.data().rol : "vendedora";
           const normalizado = typeof crudo === "string" ? crudo.trim().toLowerCase() : "vendedora";
           setRol(normalizado);
+          const nombreGuardado = snap.exists() ? snap.data().nombre : null;
+          setNombre(nombreGuardado && nombreGuardado.trim() ? nombreGuardado.trim() : u.email);
         } catch (e) {
           setRol("vendedora");
+          setNombre(u.email);
         }
       } else {
         setRol(null);
+        setNombre(null);
       }
     });
     return () => unsub();
@@ -109,5 +114,5 @@ export default function AuthGate({ children }) {
     );
   }
 
-  return children({ user, rol, cerrarSesion: () => signOut(auth) });
+  return children({ user, rol, nombre, cerrarSesion: () => signOut(auth) });
 }

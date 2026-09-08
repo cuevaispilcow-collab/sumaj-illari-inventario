@@ -16,6 +16,7 @@ import Margenes from "./pages/Margenes.jsx";
 import Movimientos from "./pages/Movimientos.jsx";
 import Compras from "./pages/Compras.jsx";
 import Produccion from "./pages/Produccion.jsx";
+import Auditoria from "./pages/Auditoria.jsx";
 import NuevoProducto from "./pages/NuevoProducto.jsx";
 
 class ErrorBoundary extends React.Component {
@@ -53,7 +54,7 @@ class ErrorBoundary extends React.Component {
 }
 
 
-function SumajIllariApp({ rol, cerrarSesion }) {
+function SumajIllariApp({ rol, nombre, cerrarSesion }) {
   const [productos, setProductos] = useState(null);
   const [modelos, setModelos] = useState(null);
   const [movimientos, setMovimientos] = useState(null);
@@ -61,9 +62,30 @@ function SumajIllariApp({ rol, cerrarSesion }) {
   const [compras, setCompras] = useState(null);
   const [producciones, setProducciones] = useState(null);
   const [pedidos, setPedidos] = useState(null);
+  const [auditoria, setAuditoria] = useState(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState(vistaInicial(rol));
   const [toast, setToast] = useState(null);
+
+  // Quién es HOY la persona detrás de esta cuenta compartida — se
+  // pregunta una sola vez por sesión (no cada venta), porque la misma
+  // cuenta puede usarla distintas personas según el turno (ej. alguien
+  // cubre el día libre de otra vendedora). Se sugiere el último nombre
+  // usado en este celular, para que normalmente sea solo confirmar.
+  const [nombreSesion, setNombreSesion] = useState(null); // null = todavía no confirmado hoy
+  const [sugerenciaNombre] = useState(() => {
+    try {
+      return localStorage.getItem("sumajIllariNombreSesion") || nombre || "";
+    } catch (e) {
+      return nombre || "";
+    }
+  });
+
+  function confirmarNombreSesion(valor) {
+    const limpio = (valor || "").trim() || nombre || "Sin nombre";
+    setNombreSesion(limpio);
+    try { localStorage.setItem("sumajIllariNombreSesion", limpio); } catch (e) {}
+  }
   const [confirmReset, setConfirmReset] = useState(false);
   const [errorCarga, setErrorCarga] = useState("");
 
@@ -117,7 +139,12 @@ function SumajIllariApp({ rol, cerrarSesion }) {
       cargados.pedidos = true;
       marcarListo();
     }, manejarError);
-    return () => { unsub1(); unsubModelos(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); };
+    // La auditoría no bloquea que la app esté "lista" — es información
+    // de supervisión, no algo que se necesite para operar el día a día.
+    const unsubAuditoria = escucharColeccion("auditoria", (items) => {
+      setAuditoria(items);
+    }, () => {});
+    return () => { unsub1(); unsubModelos(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsubAuditoria(); };
   }, []);
 
   // Red de seguridad: si algo falla en segundo plano (por ejemplo, el guardado),
@@ -289,6 +316,10 @@ function SumajIllariApp({ rol, cerrarSesion }) {
   const vistaSegura = puedeVer(rol, view) ? view : vistaInicial(rol);
   const vistaOscura = ["dashboard", "analisis", "demanda", "margenes"].includes(vistaSegura);
 
+  if (nombreSesion === null) {
+    return <ConfirmarNombreSesion sugerencia={sugerenciaNombre} onConfirmar={confirmarNombreSesion} cerrarSesion={cerrarSesion} />;
+  }
+
   return (
     <div className="min-h-screen bg-stone-100 lg:flex">
       <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} cerrarSesion={cerrarSesion} />
@@ -296,25 +327,26 @@ function SumajIllariApp({ rol, cerrarSesion }) {
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
           {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientos} ventas={ventas} setView={setView} />}
           {vistaSegura === "productos" && (
-            <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} />
+            <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} nombre={nombreSesion} />
           )}
           {vistaSegura === "ventas" && (
-            <Ventas productos={productosCompletos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} />
+            <Ventas productos={productosCompletos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} nombre={nombreSesion} rol={rol} />
           )}
           {vistaSegura === "demanda" && <Demanda ventas={ventas} productos={productosCompletos} />}
           {vistaSegura === "analisis" && <Analisis productos={productosCompletos} movimientos={movimientos} ventas={ventas} />}
           {vistaSegura === "margenes" && <Margenes productos={productosCompletos} ventas={ventas} />}
           {vistaSegura === "movimientos" && (
-            <Movimientos productos={productosCompletos} movimientos={movimientos} onSave={persist} showToast={showToast} />
+            <Movimientos productos={productosCompletos} movimientos={movimientos} onSave={persist} showToast={showToast} nombre={nombreSesion} rol={rol} />
           )}
           {vistaSegura === "compras" && (
-            <Compras productos={productosCompletos} movimientos={movimientos} compras={compras} onSave={persist} showToast={showToast} />
+            <Compras productos={productosCompletos} movimientos={movimientos} compras={compras} onSave={persist} showToast={showToast} nombre={nombreSesion} rol={rol} />
           )}
+          {vistaSegura === "auditoria" && <Auditoria auditoria={auditoria} />}
           {vistaSegura === "produccion" && (
-            <Produccion productos={productosCompletos} variantes={productos} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} />
+            <Produccion productos={productosCompletos} variantes={productos} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} nombre={nombreSesion} />
           )}
           {vistaSegura === "nuevo" && (
-            <NuevoProducto productos={productos} modelos={modelos} onSaveModelos={persistModelos} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} />
+            <NuevoProducto productos={productos} modelos={modelos} onSaveModelos={persistModelos} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} nombre={nombreSesion} rol={rol} />
           )}
         </div>
       </main>
@@ -332,11 +364,43 @@ function SumajIllariApp({ rol, cerrarSesion }) {
 }
 
 
+function ConfirmarNombreSesion({ sugerencia, onConfirmar, cerrarSesion }) {
+  const [valor, setValor] = useState(sugerencia || "");
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-stone-100 p-6">
+      <div className="bg-white rounded-xl shadow-sm border border-stone-200 p-6 max-w-sm w-full">
+        <h2 className="font-semibold text-stone-800 mb-1">¿Quién eres hoy?</h2>
+        <p className="text-sm text-stone-500 mb-4">
+          Esta cuenta la puede usar más de una persona según el turno. Tu nombre queda registrado junto a lo que hagas hoy, para que quede claro quién hizo cada cosa.
+        </p>
+        <input
+          autoFocus
+          value={valor}
+          onChange={(e) => setValor(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onConfirmar(valor)}
+          placeholder="Tu nombre"
+          className="w-full px-3 py-2.5 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500 mb-3"
+        />
+        <button
+          onClick={() => onConfirmar(valor)}
+          className="w-full py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition"
+        >
+          Continuar
+        </button>
+        <button onClick={cerrarSesion} className="w-full py-2 mt-2 text-xs text-stone-400 hover:text-stone-600">
+          No soy yo — cerrar sesión
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function SumajIllariAppRoot() {
   return (
     <ErrorBoundary>
       <AuthGate>
-        {({ rol, cerrarSesion }) => <SumajIllariApp rol={rol} cerrarSesion={cerrarSesion} />}
+        {({ rol, nombre, cerrarSesion }) => <SumajIllariApp rol={rol} nombre={nombre} cerrarSesion={cerrarSesion} />}
       </AuthGate>
     </ErrorBoundary>
   );
