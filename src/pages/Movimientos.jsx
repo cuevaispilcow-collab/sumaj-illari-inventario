@@ -5,9 +5,9 @@ import {
 import { todayStr } from "../utils/format.js";
 import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
-import { operarInventarioSeguro } from "../firestoreSync.js";
+import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Movimientos({ productos, movimientos, onSave, showToast }) {
+export default function Movimientos({ productos, movimientos, onSave, showToast, nombre, rol }) {
   const [tipo, setTipo] = useState("ENTRADA");
   const [productoId, setProductoId] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -53,6 +53,10 @@ export default function Movimientos({ productos, movimientos, onSave, showToast 
       }, ["modelos"]);
 
       showToast("success", `${tipo === "ENTRADA" ? "Entrada" : "Salida"} registrada. Stock actualizado.`);
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "MOVIMIENTO",
+        detalle: `${tipo === "ENTRADA" ? "Entrada" : "Salida"} de ${cant} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""}${motivo ? " — " + motivo : ""}`,
+      }).catch(() => {});
       setCantidad(""); setMotivo(""); setError("");
     } catch (err) {
       setError(err && err.message ? err.message : "No se pudo registrar el movimiento. Intenta de nuevo.");

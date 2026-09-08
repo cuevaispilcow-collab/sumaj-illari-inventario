@@ -5,9 +5,9 @@ import {
 import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
 import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
-import { operarInventarioSeguro } from "../firestoreSync.js";
+import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Compras({ productos, movimientos, compras, onSave, showToast }) {
+export default function Compras({ productos, movimientos, compras, onSave, showToast, nombre, rol }) {
   const [tab, setTab] = useState("registro"); // "registro" | "pareto"
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
@@ -85,6 +85,10 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
       }, ["modelos"]);
 
       showToast("success", `Compra registrada. Costo actualizado a ${formatSoles(costoFinal)}.`);
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "COMPRA",
+        detalle: `Compró ${cant} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""} a ${proveedor.trim()} — S/ ${totalCalc.toFixed(2)}`,
+      }).catch(() => {});
       reset();
       setShowForm(false);
     } catch (err) {

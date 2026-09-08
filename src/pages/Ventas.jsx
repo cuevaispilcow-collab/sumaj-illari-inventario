@@ -5,9 +5,9 @@ import {
 import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
 import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
-import { operarInventarioSeguro } from "../firestoreSync.js";
+import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Ventas({ productos, movimientos, ventas, onSave, showToast }) {
+export default function Ventas({ productos, movimientos, ventas, onSave, showToast, nombre, rol }) {
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
   const [productoId, setProductoId] = useState("");
@@ -84,6 +84,10 @@ export default function Ventas({ productos, movimientos, ventas, onSave, showToa
       }, ["modelos"]);
 
       showToast("success", "Venta registrada. Stock actualizado.");
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "VENTA",
+        detalle: `Vendió ${cant} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""} — S/ ${totalCalc.toFixed(2)}`,
+      }).catch(() => {});
       reset();
       setShowForm(false);
     } catch (err) {

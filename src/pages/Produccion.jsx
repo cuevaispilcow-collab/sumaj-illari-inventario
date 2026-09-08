@@ -4,9 +4,9 @@ import {
 } from "lucide-react";
 import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
 import SelectorProducto from "../components/SelectorProducto.jsx";
-import { operarInventarioSeguro } from "../firestoreSync.js";
+import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Produccion({ productos, variantes, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol }) {
+export default function Produccion({ productos, variantes, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre }) {
   const [tab, setTab] = useState("producir"); // "producir" | "recetas" | "pedidos"
 
   const terminados = productos.filter((p) => p.tipo === "Terminado" || p.tipo === "En proceso");
@@ -37,18 +37,18 @@ export default function Produccion({ productos, variantes, movimientos, ventas, 
       </div>
 
       {tab === "recetas" ? (
-        <RecetasEditor productos={productos} variantes={variantes} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} />
+        <RecetasEditor productos={productos} variantes={variantes} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} />
       ) : tab === "pedidos" ? (
-        <PedidosPanel productos={productos} variantes={variantes} movimientos={movimientos} ventas={ventas} producciones={producciones} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} />
+        <PedidosPanel productos={productos} variantes={variantes} movimientos={movimientos} ventas={ventas} producciones={producciones} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} nombre={nombre} />
       ) : (
-        <ProducirForm productos={productos} movimientos={movimientos} producciones={producciones} terminados={terminados} onSave={onSave} showToast={showToast} />
+        <ProducirForm productos={productos} movimientos={movimientos} producciones={producciones} terminados={terminados} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} />
       )}
     </div>
   );
 }
 
 
-function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, movimientos, onSave, showToast }) {
+function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, movimientos, onSave, showToast, nombre, rol }) {
   const [terminadoId, setTerminadoId] = useState("");
   const [materiaPrimaId, setMateriaPrimaId] = useState("");
   const [cantidadPorUnidad, setCantidadPorUnidad] = useState("");
@@ -88,6 +88,10 @@ function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, m
       setGuardando(true);
       await onSave(newVariantes, movimientos);
       showToast("success", "Ficha técnica actualizada.");
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "RECETA",
+        detalle: `Actualizó la ficha técnica de ${terminado?.producto || ""}${terminado?.talla && terminado.talla !== "Única" ? " - " + terminado.talla : ""}`,
+      }).catch(() => {});
     } catch (err) {
       setError("No se pudo guardar: " + (err && err.message ? err.message : String(err)));
     } finally {
@@ -169,7 +173,7 @@ function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, m
 }
 
 
-function ProducirForm({ productos, movimientos, producciones, terminados, onSave, showToast }) {
+function ProducirForm({ productos, movimientos, producciones, terminados, onSave, showToast, nombre, rol }) {
   const [fecha, setFecha] = useState(todayStr());
   const [terminadoId, setTerminadoId] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -280,6 +284,10 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
       }, ["modelos"]);
 
       showToast("success", `Producción registrada. Costo actualizado a ${formatSoles(costoFinal)}.`);
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PRODUCCION",
+        detalle: `Produjo ${cant} ${terminado?.producto || ""}${terminado?.talla && terminado.talla !== "Única" ? " - " + terminado.talla : ""}`,
+      }).catch(() => {});
       setTerminadoId(""); setCantidad(""); setError("");
     } catch (err) {
       setError(err && err.message ? err.message : "No se pudo guardar la producción. Intenta de nuevo.");
@@ -390,7 +398,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
 
 const ETAPAS = ["Tomado", "Corte", "Costura", "Acabado", "Completado"];
 
-function PedidosPanel({ productos, variantes, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol }) {
+function PedidosPanel({ productos, variantes, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol, nombre }) {
   const [showForm, setShowForm] = useState(false);
   const [cliente, setCliente] = useState("");
   const [productoId, setProductoId] = useState("");
@@ -434,6 +442,10 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
       };
       await onSave(variantes, movimientos, ventas, undefined, producciones, [...pedidos, nuevoPedido]);
       showToast("success", `Pedido de ${cliente.trim()} registrado.`);
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_TOMADO",
+        detalle: `Tomó pedido de ${cliente.trim()} — ${cant} ${producto?.producto || ""} — S/ ${precio.toFixed(2)}`,
+      }).catch(() => {});
       reset();
       setShowForm(false);
     } catch (err) {
@@ -450,6 +462,10 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
     const nuevosPedidos = pedidos.map((p) => (p.id === pedido.id ? { ...p, etapa: nuevaEtapa } : p));
     await onSave(variantes, movimientos, ventas, undefined, producciones, nuevosPedidos);
     showToast("success", `Pedido de ${pedido.cliente} ahora en etapa "${nuevaEtapa}".`);
+    registrarAuditoria({
+      fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_ETAPA",
+      detalle: `Pedido de ${pedido.cliente} pasó a etapa "${nuevaEtapa}"`,
+    }).catch(() => {});
   }
 
   // Al completar un pedido pasan DOS cosas de negocio a la vez: se
@@ -551,6 +567,10 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
       }, ["modelos"]);
 
       showToast("success", `Pedido de ${pedido.cliente} completado y entregado. Margen: ${formatSoles(margenFinal)}.`);
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_COMPLETADO",
+        detalle: `Pedido de ${pedido.cliente} — margen ${formatSoles(margenFinal)}`,
+      }).catch(() => {});
     } catch (err) {
       showToast("error", "No se pudo completar el pedido: " + (err && err.message ? err.message : String(err)));
     } finally {

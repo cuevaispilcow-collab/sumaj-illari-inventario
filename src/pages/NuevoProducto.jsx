@@ -5,7 +5,9 @@ import {
 import { TIPOS } from "../utils/constants.js";
 import { todayStr } from "../utils/format.js";
 
-export default function NuevoProducto({ productos, modelos, onSaveModelos, movimientos, onSave, showToast, setView }) {
+import { registrarAuditoria } from "../firestoreSync.js";
+
+export default function NuevoProducto({ productos, modelos, onSaveModelos, movimientos, onSave, showToast, setView, nombre, rol }) {
   const [tipo, setTipo] = useState("Materia prima");
   const [codigo, setCodigo] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -72,6 +74,10 @@ export default function NuevoProducto({ productos, modelos, onSaveModelos, movim
       }
       await onSave([...productos, nuevaTalla], movimientos);
       showToast("success", `${talla.trim() || "Única"} de "${modeloExistente ? modeloExistente.producto : producto}" agregada.`);
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PRODUCTO_CREADO",
+        detalle: `Creó ${modeloExistente ? modeloExistente.producto : producto}${(talla.trim() || "Única") !== "Única" ? " - " + talla.trim() : ""}`,
+      }).catch(() => {});
       setCodigo(""); setCategoria(""); setProducto(""); setDescripcion("");
       setTalla("Única"); setStockInicial(""); setStockMinimo(""); setError("");
       setView("productos");

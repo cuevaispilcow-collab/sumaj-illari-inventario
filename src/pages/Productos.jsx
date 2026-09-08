@@ -6,7 +6,9 @@ import { TIPOS } from "../utils/constants.js";
 import { formatSoles } from "../utils/format.js";
 import EmptyState from "../components/EmptyState.jsx";
 
-export default function Productos({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, onSave, showToast, setView, rol }) {
+import { registrarAuditoria } from "../firestoreSync.js";
+
+export default function Productos({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, onSave, showToast, setView, rol, nombre: nombreUsuario }) {
   const [q, setQ] = useState("");
   const [tipo, setTipo] = useState("todos");
   const [editingId, setEditingId] = useState(null);
@@ -249,6 +251,8 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
           onSave={onSave}
           showToast={showToast}
           onClose={() => setEditandoProducto(null)}
+          nombreUsuario={nombreUsuario}
+          rol={rol}
         />
       )}
     </div>
@@ -256,7 +260,7 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
 }
 
 
-function EditarProductoModal({ producto, productos, variantes, modelos, onSaveModelos, movimientos, ventas, onSave, showToast, onClose }) {
+function EditarProductoModal({ producto, productos, variantes, modelos, onSaveModelos, movimientos, ventas, onSave, showToast, onClose, nombreUsuario, rol }) {
   const [codigo, setCodigo] = useState(producto.codigo);
   const [categoria, setCategoria] = useState(producto.categoria);
   const [nombre, setNombre] = useState(producto.producto);
@@ -286,6 +290,10 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
       setGuardando(true);
       await onSave(nuevasVariantes, movimientos, ventas);
       showToast("success", `Producto "${producto.producto}" eliminado.`);
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombreUsuario || "?", rol, accion: "PRODUCTO_ELIMINADO",
+        detalle: `Eliminó ${producto.producto}${producto.talla !== "Única" ? " - " + producto.talla : ""}`,
+      }).catch(() => {});
       onClose();
     } catch (err) {
       setError("No se pudo eliminar: " + (err && err.message ? err.message : String(err)));
@@ -318,11 +326,14 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
     // Campos de Modelo (compartidos por TODAS las tallas de este código):
     // se actualiza el modelo una sola vez, y automáticamente aplica a
     // todas sus tallas — así nunca quedan desincronizadas entre sí.
-    const nuevosModelos = modelos.map((m) =>
-      m.codigo === producto.codigo
-        ? { ...m, codigo: codigo.trim(), categoria: categoria.trim(), producto: nombre.trim(), descripcion: descripcion.trim(), unidad, tipo }
-        : m
-    );
+    // Si este producto se creó ANTES de separar Modelo y Talla, puede que
+    // todavía no tenga un modelo propio — en ese caso se crea recién aquí,
+    // en vez de perder silenciosamente los cambios de nombre/categoría.
+    const modeloActualizado = { codigo: codigo.trim(), categoria: categoria.trim(), producto: nombre.trim(), descripcion: descripcion.trim(), unidad, tipo };
+    const existeModelo = modelos.some((m) => m.codigo === producto.codigo);
+    const nuevosModelos = existeModelo
+      ? modelos.map((m) => (m.codigo === producto.codigo ? modeloActualizado : m))
+      : [...modelos, modeloActualizado];
 
     // Campos propios de esta talla únicamente.
     const original = variantes.find((v) => v.id === producto.id);
@@ -359,6 +370,17 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
       await onSaveModelos(nuevosModelos);
       await onSave(nuevasVariantes, nuevosMovimientos, nuevasVentas);
       showToast("success", `Producto "${nombre.trim()}" actualizado.`);
+      const camposCambiados = [];
+      if (categoria.trim() !== producto.categoria) camposCambiados.push("categoría");
+      if (nombre.trim() !== producto.producto) camposCambiados.push("nombre");
+      if (tipo !== producto.tipo) camposCambiados.push("tipo");
+      if (unidad !== producto.unidad) camposCambiados.push("unidad");
+      if (st !== producto.stock) camposCambiados.push("stock");
+      if (String(sm) !== String(producto.stockMinimo)) camposCambiados.push("stock mínimo");
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombreUsuario || "?", rol, accion: "PRODUCTO_EDITADO",
+        detalle: `Editó ${nombre.trim()}${camposCambiados.length > 0 ? " (" + camposCambiados.join(", ") + ")" : ""}`,
+      }).catch(() => {});
       onClose();
     } catch (err) {
       setError("No se pudo guardar el cambio: " + (err && err.message ? err.message : String(err)));
