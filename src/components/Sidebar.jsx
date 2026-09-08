@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  Package, TrendingUp, ArrowLeftRight, PackagePlus, ReceiptText, RotateCcw, Download, LayoutDashboard, Menu, X, LogOut, ShoppingCart, Percent, Factory, LineChart as LineChartIcon,
+  Package, TrendingUp, ArrowLeftRight, PackagePlus, ReceiptText, RotateCcw, Download, LayoutDashboard, Menu, X, LogOut, ShoppingCart, Percent, Factory, ClipboardList, LineChart as LineChartIcon,
 } from "lucide-react";
 import Logo from "../Logo.jsx";
 import { puedeVer } from "../roles.js";
@@ -17,6 +17,7 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, ro
     { id: "movimientos", label: "Entradas / salidas", icon: ArrowLeftRight },
     { id: "compras", label: "Compras", icon: ShoppingCart },
     { id: "produccion", label: "Producción", icon: Factory },
+    { id: "auditoria", label: "Auditoría", icon: ClipboardList },
     { id: "nuevo", label: "Nuevo producto", icon: PackagePlus },
   ];
   const tabs = tabsTodas.filter((t) => puedeVer(rol, t.id));
