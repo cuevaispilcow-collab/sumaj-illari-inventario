@@ -5,7 +5,7 @@ import {
 import Logo from "../Logo.jsx";
 import { puedeVer } from "../roles.js";
 
-export default function Sidebar({ view, setView, onResetClick, onExportClick, rol, cerrarSesion, nombreSesion, onCambiarNombre }) {
+export default function Sidebar({ view, setView, onResetClick, onExportClick, rol, ubicacion, cerrarSesion, nombreSesion, onCambiarNombre }) {
   const [abierto, setAbierto] = useState(false);
   const tabsTodas = [
     { id: "dashboard", label: "Panel", icon: LayoutDashboard },
@@ -20,7 +20,7 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, ro
     { id: "auditoria", label: "Auditoría", icon: ClipboardList },
     { id: "nuevo", label: "Nuevo producto", icon: PackagePlus },
   ];
-  const tabs = tabsTodas.filter((t) => puedeVer(rol, t.id));
+  const tabs = tabsTodas.filter((t) => puedeVer(rol, t.id, ubicacion));
 
   const contenidoNav = (
     <>
