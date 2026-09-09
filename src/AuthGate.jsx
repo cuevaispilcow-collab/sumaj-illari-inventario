@@ -15,6 +15,7 @@ export default function AuthGate({ children }) {
   const [user, setUser] = useState(undefined); // undefined = cargando, null = sin sesión
   const [rol, setRol] = useState(null);
   const [nombre, setNombre] = useState(null);
+  const [ubicacion, setUbicacion] = useState(null);
   const [error, setError] = useState("");
   const [cargandoLogin, setCargandoLogin] = useState(false);
   const [email, setEmail] = useState("");
@@ -33,13 +34,21 @@ export default function AuthGate({ children }) {
           setRol(normalizado);
           const nombreGuardado = snap.exists() ? snap.data().nombre : null;
           setNombre(nombreGuardado && nombreGuardado.trim() ? nombreGuardado.trim() : u.email);
+          // La ubicación dice en qué empresa/local trabaja esta cuenta
+          // (sumaj_illari, jl_planta, tienda_x). La gerente no depende de
+          // esto (ve todo), pero cada cuenta operativa sí necesita saberlo
+          // para trabajar sobre el inventario correcto.
+          const ubicacionGuardada = snap.exists() ? snap.data().ubicacion : null;
+          setUbicacion(ubicacionGuardada || "sumaj_illari");
         } catch (e) {
           setRol("vendedora");
           setNombre(u.email);
+          setUbicacion("sumaj_illari");
         }
       } else {
         setRol(null);
         setNombre(null);
+        setUbicacion(null);
       }
     });
     return () => unsub();
@@ -114,5 +123,5 @@ export default function AuthGate({ children }) {
     );
   }
 
-  return children({ user, rol, nombre, cerrarSesion: () => signOut(auth) });
+  return children({ user, rol, nombre, ubicacion, cerrarSesion: () => signOut(auth) });
 }

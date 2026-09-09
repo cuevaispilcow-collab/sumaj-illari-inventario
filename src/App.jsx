@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import AuthGate from "./AuthGate.jsx";
 import { escucharColeccion, guardarColeccion, operarInventarioSeguro } from "./firestoreSync.js";
 import { puedeVer, vistaInicial } from "./roles.js";
+import { UBICACIONES } from "./utils/constants.js";
 import { todayStr } from "./utils/format.js";
 import Sidebar from "./components/Sidebar.jsx";
 import ConfirmModal from "./components/ConfirmModal.jsx";
@@ -54,9 +55,10 @@ class ErrorBoundary extends React.Component {
 }
 
 
-function SumajIllariApp({ rol, nombre, cerrarSesion }) {
+function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   const [productos, setProductos] = useState(null);
   const [modelos, setModelos] = useState(null);
+  const [inventarios, setInventarios] = useState(null);
   const [movimientos, setMovimientos] = useState(null);
   const [ventas, setVentas] = useState(null);
   const [compras, setCompras] = useState(null);
@@ -96,9 +98,9 @@ function SumajIllariApp({ rol, nombre, cerrarSesion }) {
   // vendedora, computadora de la gerente, etc.) guarda un cambio, todos
   // los demás lo reciben automáticamente aquí, sin recargar la página.
   useEffect(() => {
-    let cargados = { productos: false, modelos: false, movimientos: false, ventas: false, compras: false, producciones: false, pedidos: false };
+    let cargados = { productos: false, modelos: false, inventarios: false, movimientos: false, ventas: false, compras: false, producciones: false, pedidos: false };
     const marcarListo = () => {
-      if (cargados.productos && cargados.modelos && cargados.movimientos && cargados.ventas && cargados.compras && cargados.producciones && cargados.pedidos) setReady(true);
+      if (cargados.productos && cargados.modelos && cargados.inventarios && cargados.movimientos && cargados.ventas && cargados.compras && cargados.producciones && cargados.pedidos) setReady(true);
     };
     const manejarError = (error) => {
       setErrorCarga(
@@ -115,6 +117,13 @@ function SumajIllariApp({ rol, nombre, cerrarSesion }) {
     const unsubModelos = escucharColeccion("modelos", (items) => {
       setModelos(items);
       cargados.modelos = true;
+      marcarListo();
+    }, manejarError);
+    // Stock y costo, ahora por ubicación (SUMAJ ILLARI, JL Planta, Tienda X)
+    // en vez de un solo número global por producto.
+    const unsubInventarios = escucharColeccion("inventarios", (items) => {
+      setInventarios(items);
+      cargados.inventarios = true;
       marcarListo();
     }, manejarError);
     const unsub2 = escucharColeccion("movimientos", (items) => {
@@ -147,7 +156,7 @@ function SumajIllariApp({ rol, nombre, cerrarSesion }) {
     const unsubAuditoria = escucharColeccion("auditoria", (items) => {
       setAuditoria(items);
     }, () => {});
-    return () => { unsub1(); unsubModelos(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsubAuditoria(); };
+    return () => { unsub1(); unsubModelos(); unsubInventarios(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsubAuditoria(); };
   }, []);
 
   // Red de seguridad: si algo falla en segundo plano (por ejemplo, el guardado),
@@ -215,15 +224,40 @@ function SumajIllariApp({ rol, nombre, cerrarSesion }) {
     return Promise.resolve();
   }
 
+  function persistInventarios(newInventarios) {
+    setInventarios(newInventarios);
+    (async () => {
+      try {
+        await guardarColeccion("inventarios", newInventarios);
+      } catch (e) {
+        showToast("error", "Se guardó en pantalla, pero el respaldo del inventario tardó demasiado.");
+      }
+    })();
+    return Promise.resolve();
+  }
+
   // Lo que ve cada pantalla: cada talla (producto) "completa" con los
-  // datos de su modelo ya pegados encima (nombre, categoría, tipo,
-  // descripción, unidad). Así, el resto de la app sigue viendo un solo
-  // objeto por producto, igual que antes de separar modelo y talla.
+  // datos de su modelo (nombre, categoría, tipo...) y con el stock/costo
+  // de la UBICACIÓN de quien está usando la app en ese momento — no un
+  // solo stock global. Si un producto todavía no tiene un registro de
+  // inventario para esta ubicación (ej. porque se creó antes de separar
+  // por ubicación), se usa su stock antiguo como el de "sumaj_illari" —
+  // así no se pierde nada de lo que ya existía.
   const productosCompletos = React.useMemo(() => {
-    if (!productos) return productos;
+    if (!productos || !inventarios) return productos;
     const modelosPorCodigo = Object.fromEntries((modelos || []).map((m) => [m.codigo, m]));
-    return productos.map((p) => ({ ...(modelosPorCodigo[p.codigo] || {}), ...p }));
-  }, [productos, modelos]);
+    const inventariosPorClave = Object.fromEntries(inventarios.map((i) => [i.id, i]));
+    return productos.map((p) => {
+      const clave = `${p.id}__${ubicacion}`;
+      const inv = inventariosPorClave[clave];
+      const datosInventario = inv
+        ? { stock: inv.stock, stockMinimo: inv.stockMinimo, costoUnitario: inv.costoUnitario, fechaIncorporacion: inv.fechaIncorporacion, precioMinimo: inv.precioMinimo != null ? inv.precioMinimo : p.precioMinimo }
+        : ubicacion === "sumaj_illari"
+          ? { stock: p.stock, stockMinimo: p.stockMinimo, costoUnitario: p.costoUnitario, fechaIncorporacion: p.fechaIncorporacion }
+          : { stock: 0, stockMinimo: null, costoUnitario: null, fechaIncorporacion: null };
+      return { ...(modelosPorCodigo[p.codigo] || {}), ...p, ...datosInventario };
+    });
+  }, [productos, modelos, inventarios, ubicacion]);
 
   function showToast(type, msg) {
     setToast({ type, msg });
@@ -316,7 +350,7 @@ function SumajIllariApp({ rol, nombre, cerrarSesion }) {
 
   // Seguridad: si la vista actual no está permitida para este rol
   // (por ejemplo, alguien escribe la sección directamente), se corrige.
-  const vistaSegura = puedeVer(rol, view) ? view : vistaInicial(rol);
+  const vistaSegura = puedeVer(rol, view, ubicacion) ? view : vistaInicial(rol);
   const vistaOscura = ["dashboard", "analisis", "demanda", "margenes"].includes(vistaSegura);
 
   if (pidiendoNombre) {
@@ -325,31 +359,31 @@ function SumajIllariApp({ rol, nombre, cerrarSesion }) {
 
   return (
     <div className="min-h-screen bg-stone-100 lg:flex">
-      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} />
+      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
           {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientos} ventas={ventas} setView={setView} />}
           {vistaSegura === "productos" && (
-            <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} nombre={nombreSesion} />
+            <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} inventarios={inventarios} onSaveInventarios={persistInventarios} ubicacion={ubicacion} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} nombre={nombreSesion} />
           )}
           {vistaSegura === "ventas" && (
-            <Ventas productos={productosCompletos} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} nombre={nombreSesion} rol={rol} />
+            <Ventas productos={productosCompletos} movimientos={movimientos} ventas={ventas} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
           )}
           {vistaSegura === "demanda" && <Demanda ventas={ventas} productos={productosCompletos} />}
           {vistaSegura === "analisis" && <Analisis productos={productosCompletos} movimientos={movimientos} ventas={ventas} />}
           {vistaSegura === "margenes" && <Margenes productos={productosCompletos} ventas={ventas} />}
           {vistaSegura === "movimientos" && (
-            <Movimientos productos={productosCompletos} movimientos={movimientos} onSave={persist} showToast={showToast} nombre={nombreSesion} rol={rol} />
+            <Movimientos productos={productosCompletos} movimientos={movimientos} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
           )}
           {vistaSegura === "compras" && (
-            <Compras productos={productosCompletos} movimientos={movimientos} compras={compras} onSave={persist} showToast={showToast} nombre={nombreSesion} rol={rol} />
+            <Compras productos={productosCompletos} movimientos={movimientos} compras={compras} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
           )}
           {vistaSegura === "auditoria" && <Auditoria auditoria={auditoria} />}
           {vistaSegura === "produccion" && (
-            <Produccion productos={productosCompletos} variantes={productos} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} nombre={nombreSesion} />
+            <Produccion productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} onSaveInventarios={persistInventarios} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} nombre={nombreSesion} ubicacion={ubicacion} />
           )}
           {vistaSegura === "nuevo" && (
-            <NuevoProducto productos={productos} modelos={modelos} onSaveModelos={persistModelos} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} nombre={nombreSesion} rol={rol} />
+            <NuevoProducto productos={productos} modelos={modelos} onSaveModelos={persistModelos} onSaveInventarios={persistInventarios} inventarios={inventarios} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
           )}
         </div>
       </main>
@@ -403,7 +437,7 @@ export default function SumajIllariAppRoot() {
   return (
     <ErrorBoundary>
       <AuthGate>
-        {({ rol, nombre, cerrarSesion }) => <SumajIllariApp rol={rol} nombre={nombre} cerrarSesion={cerrarSesion} />}
+        {({ rol, nombre, ubicacion, cerrarSesion }) => <SumajIllariApp rol={rol} nombre={nombre} ubicacion={ubicacion} cerrarSesion={cerrarSesion} />}
       </AuthGate>
     </ErrorBoundary>
   );
