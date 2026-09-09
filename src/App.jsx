@@ -67,23 +67,26 @@ function SumajIllariApp({ rol, nombre, cerrarSesion }) {
   const [view, setView] = useState(vistaInicial(rol));
   const [toast, setToast] = useState(null);
 
-  // Quién es HOY la persona detrás de esta cuenta compartida — se
-  // pregunta una sola vez por sesión (no cada venta), porque la misma
-  // cuenta puede usarla distintas personas según el turno (ej. alguien
-  // cubre el día libre de otra vendedora). Se sugiere el último nombre
-  // usado en este celular, para que normalmente sea solo confirmar.
-  const [nombreSesion, setNombreSesion] = useState(null); // null = todavía no confirmado hoy
-  const [sugerenciaNombre] = useState(() => {
+  // Quién es HOY la persona detrás de esta cuenta compartida. Se
+  // pregunta UNA SOLA VEZ POR CELULAR (no cada vez que se recarga la
+  // página) — porque la misma cuenta puede usarla distintas personas
+  // según el turno (ej. alguien cubre el día libre de otra vendedora).
+  // Si ya hay un nombre guardado en este celular, se usa directo, sin
+  // molestar a nadie; solo se vuelve a preguntar si esa persona lo
+  // cambia a propósito (botón "Cambiar" en el menú lateral).
+  const [nombreSesion, setNombreSesion] = useState(() => {
     try {
-      return localStorage.getItem("sumajIllariNombreSesion") || nombre || "";
+      return localStorage.getItem("sumajIllariNombreSesion") || null;
     } catch (e) {
-      return nombre || "";
+      return null;
     }
   });
+  const [pidiendoNombre, setPidiendoNombre] = useState(nombreSesion === null);
 
   function confirmarNombreSesion(valor) {
     const limpio = (valor || "").trim() || nombre || "Sin nombre";
     setNombreSesion(limpio);
+    setPidiendoNombre(false);
     try { localStorage.setItem("sumajIllariNombreSesion", limpio); } catch (e) {}
   }
   const [confirmReset, setConfirmReset] = useState(false);
@@ -316,13 +319,13 @@ function SumajIllariApp({ rol, nombre, cerrarSesion }) {
   const vistaSegura = puedeVer(rol, view) ? view : vistaInicial(rol);
   const vistaOscura = ["dashboard", "analisis", "demanda", "margenes"].includes(vistaSegura);
 
-  if (nombreSesion === null) {
-    return <ConfirmarNombreSesion sugerencia={sugerenciaNombre} onConfirmar={confirmarNombreSesion} cerrarSesion={cerrarSesion} />;
+  if (pidiendoNombre) {
+    return <ConfirmarNombreSesion sugerencia={nombreSesion || nombre} onConfirmar={confirmarNombreSesion} cerrarSesion={cerrarSesion} />;
   }
 
   return (
     <div className="min-h-screen bg-stone-100 lg:flex">
-      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} cerrarSesion={cerrarSesion} />
+      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
           {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientos} ventas={ventas} setView={setView} />}
