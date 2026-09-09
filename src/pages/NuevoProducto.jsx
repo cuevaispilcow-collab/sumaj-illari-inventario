@@ -7,7 +7,7 @@ import { todayStr } from "../utils/format.js";
 
 import { registrarAuditoria } from "../firestoreSync.js";
 
-export default function NuevoProducto({ productos, modelos, onSaveModelos, movimientos, onSave, showToast, setView, nombre, rol }) {
+export default function NuevoProducto({ productos, modelos, onSaveModelos, onSaveInventarios, inventarios, movimientos, onSave, showToast, setView, nombre, rol, ubicacion }) {
   const [tipo, setTipo] = useState("Materia prima");
   const [codigo, setCodigo] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -57,9 +57,16 @@ export default function NuevoProducto({ productos, modelos, onSaveModelos, movim
       return setError("El stock mínimo debe ser un número válido.");
     }
 
+    // La variante (talla) es compartida entre ubicaciones: solo guarda su
+    // identidad. El stock inicial va al inventario de LA UBICACIÓN de
+    // quien crea el producto — otra ubicación empieza en 0 hasta que
+    // reciba o compre unidades.
     const nuevaTalla = {
       id, codigo: codigo.trim(), talla: talla.trim() || "Única",
-      stock: si, stockMinimo: sm,
+    };
+    const nuevoInventario = {
+      id: `${id}__${ubicacion}`, varianteId: id, ubicacion,
+      stock: si, stockMinimo: sm, costoUnitario: null,
       fechaIncorporacion: todayStr(), // para saber cuánto tiempo lleva en inventario
     };
 
@@ -72,6 +79,7 @@ export default function NuevoProducto({ productos, modelos, onSaveModelos, movim
         };
         await onSaveModelos([...(modelos || []), nuevoModelo]);
       }
+      await onSaveInventarios([...(inventarios || []), nuevoInventario]);
       await onSave([...productos, nuevaTalla], movimientos);
       showToast("success", `${talla.trim() || "Única"} de "${modeloExistente ? modeloExistente.producto : producto}" agregada.`);
       registrarAuditoria({

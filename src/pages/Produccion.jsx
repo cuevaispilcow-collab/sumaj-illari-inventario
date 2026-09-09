@@ -6,7 +6,7 @@ import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Produccion({ productos, variantes, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre }) {
+export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre }) {
   const [tab, setTab] = useState("producir"); // "producir" | "recetas" | "pedidos"
 
   const terminados = productos.filter((p) => p.tipo === "Terminado" || p.tipo === "En proceso");
@@ -39,9 +39,9 @@ export default function Produccion({ productos, variantes, movimientos, ventas, 
       {tab === "recetas" ? (
         <RecetasEditor productos={productos} variantes={variantes} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} />
       ) : tab === "pedidos" ? (
-        <PedidosPanel productos={productos} variantes={variantes} movimientos={movimientos} ventas={ventas} producciones={producciones} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} nombre={nombre} />
+        <PedidosPanel productos={productos} variantes={variantes} modelos={modelos} onSaveModelos={onSaveModelos} movimientos={movimientos} ventas={ventas} producciones={producciones} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} nombre={nombre} ubicacion={ubicacion} />
       ) : (
-        <ProducirForm productos={productos} movimientos={movimientos} producciones={producciones} terminados={terminados} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} />
+        <ProducirForm productos={productos} movimientos={movimientos} producciones={producciones} terminados={terminados} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} ubicacion={ubicacion} />
       )}
     </div>
   );
@@ -173,7 +173,7 @@ function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, m
 }
 
 
-function ProducirForm({ productos, movimientos, producciones, terminados, onSave, showToast, nombre, rol }) {
+function ProducirForm({ productos, movimientos, producciones, terminados, onSave, showToast, nombre, rol, ubicacion }) {
   const [fecha, setFecha] = useState(todayStr());
   const [terminadoId, setTerminadoId] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -218,70 +218,92 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
       // ese instante — así, si alguien más acaba de vender o producir
       // algo de estos mismos insumos, esta producción no se guarda con
       // números desactualizados ni deja el stock en negativo.
-      await operarInventarioSeguro(["productos", "movimientos", "producciones"], (actuales) => {
-        const modelosPorCodigo = Object.fromEntries(actuales.modelos.map((m) => [m.codigo, m]));
-        const completos = actuales.productos.map((p) => ({ ...(modelosPorCodigo[p.codigo] || {}), ...p }));
-        const terminadoReal = completos.find((p) => p.id === terminadoId);
+      await operarInventarioSeguro(["inventarios", "movimientos", "producciones"], (actuales) => {
+        // Se arma el stock/costo real de ESTA ubicación para cada producto
+        // involucrado. Si un producto todavía no tiene registro de
+        // inventario aquí, se usa lo que ya traía cargado en pantalla como
+        // punto de partida (así no se pierde nada de lo que ya existía).
+        const invPorClave = Object.fromEntries(actuales.inventarios.map((i) => [i.id, i]));
+        const leerInv = (varianteId) => {
+          const inv = invPorClave[`${varianteId}__${ubicacion}`];
+          if (inv) return inv;
+          const enPantalla = productos.find((p) => p.id === varianteId);
+          return {
+            id: `${varianteId}__${ubicacion}`, varianteId, ubicacion,
+            stock: enPantalla?.stock || 0, stockMinimo: enPantalla?.stockMinimo ?? null,
+            costoUnitario: enPantalla?.costoUnitario ?? null,
+            fechaIncorporacion: enPantalla?.fechaIncorporacion || fecha,
+          };
+        };
+
+        const terminadoReal = productos.find((p) => p.id === terminadoId);
         if (!terminadoReal) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
         const recetaReal = terminadoReal.receta || [];
         if (recetaReal.length === 0) throw new Error("Este producto ya no tiene una ficha técnica definida.");
 
         const consumoReal = recetaReal.map((r) => {
-          const mp = completos.find((p) => p.id === r.materiaPrimaId);
+          const mpPantalla = productos.find((p) => p.id === r.materiaPrimaId);
+          const mpInv = leerInv(r.materiaPrimaId);
           const necesario = round2(r.cantidadPorUnidad * cant);
-          return { ...r, materiaPrima: mp, necesario, costoUnitarioMP: mp?.costoUnitario ?? null };
+          return { ...r, materiaPrima: mpPantalla, inv: mpInv, necesario, costoUnitarioMP: mpInv.costoUnitario };
         });
 
-        const faltante = consumoReal.find((c) => !c.materiaPrima || c.materiaPrima.stock < c.necesario);
+        const faltante = consumoReal.find((c) => !c.materiaPrima || c.inv.stock < c.necesario);
         if (faltante) {
-          const nombre = faltante.materiaPrima ? faltante.materiaPrima.producto : "un insumo de la ficha técnica";
-          const disponible = faltante.materiaPrima ? faltante.materiaPrima.stock : 0;
-          throw new Error(`Stock insuficiente de ${nombre}. Ahora mismo solo hay ${disponible} (puede que alguien más lo haya usado).`);
+          const nombreInsumo = faltante.materiaPrima ? faltante.materiaPrima.producto : "un insumo de la ficha técnica";
+          const disponible = faltante.materiaPrima ? faltante.inv.stock : 0;
+          throw new Error(`Stock insuficiente de ${nombreInsumo}. Ahora mismo solo hay ${disponible} (puede que alguien más lo haya usado).`);
         }
 
         const costoTotalReal = round2(consumoReal.reduce((s, c) => s + (c.costoUnitarioMP || 0) * c.necesario, 0));
         const costoUnitarioReal = cant > 0 ? round2(costoTotalReal / cant) : 0;
-        const stockAnterior = terminadoReal.stock;
-        const costoAnterior = terminadoReal.costoUnitario;
-        const nuevoCosto = costoAnterior != null && stockAnterior > 0
-          ? round2((stockAnterior * costoAnterior + cant * costoUnitarioReal) / (stockAnterior + cant))
+        const invTerminado = leerInv(terminadoId);
+        const nuevoCosto = invTerminado.costoUnitario != null && invTerminado.stock > 0
+          ? round2((invTerminado.stock * invTerminado.costoUnitario + cant * costoUnitarioReal) / (invTerminado.stock + cant))
           : costoUnitarioReal;
         costoFinal = nuevoCosto;
 
-        const nuevosProductos = actuales.productos.map((p) => {
-          if (p.id === terminadoId) return { ...p, stock: p.stock + cant, costoUnitario: nuevoCosto };
-          const consumido = consumoReal.find((c) => c.materiaPrimaId === p.id);
-          if (consumido) return { ...p, stock: round2(p.stock - consumido.necesario) };
-          return p;
-        });
+        // Se aplican los cambios sobre los registros de inventario de esta
+        // ubicación: sube el terminado, bajan los insumos consumidos.
+        const cambios = {
+          [invTerminado.id]: { ...invTerminado, stock: round2(invTerminado.stock + cant), costoUnitario: nuevoCosto },
+        };
+        for (const c of consumoReal) {
+          const yaModificado = cambios[c.inv.id] || c.inv;
+          cambios[c.inv.id] = { ...yaModificado, stock: round2(yaModificado.stock - c.necesario) };
+        }
+        const nuevosInventarios = [
+          ...actuales.inventarios.filter((i) => !cambios[i.id]),
+          ...Object.values(cambios),
+        ];
 
         const nuevosMovimientos = [
           ...actuales.movimientos,
           ...consumoReal.map((c) => ({
-            id: `M${Date.now()}-${c.materiaPrimaId}`, fecha, tipo: "SALIDA", productoId: c.materiaPrimaId,
+            id: `M${Date.now()}-${c.materiaPrimaId}`, fecha, tipo: "SALIDA", productoId: c.materiaPrimaId, ubicacion,
             productoNombre: `${c.materiaPrima.producto}${c.materiaPrima.talla !== "Única" ? " - " + c.materiaPrima.talla : ""}`,
             cantidad: c.necesario, motivo: `Consumo para producción de ${terminadoReal.producto}`,
           })),
           {
-            id: `M${Date.now()}-prod`, fecha, tipo: "ENTRADA", productoId: terminadoId,
+            id: `M${Date.now()}-prod`, fecha, tipo: "ENTRADA", productoId: terminadoId, ubicacion,
             productoNombre: `${terminadoReal.producto}${terminadoReal.talla !== "Única" ? " - " + terminadoReal.talla : ""}`,
             cantidad: cant, motivo: "Producción",
           },
         ];
 
         const produccion = {
-          id: `P${Date.now()}`, fecha, productoId: terminadoId, codigo: terminadoReal.codigo,
+          id: `P${Date.now()}`, fecha, productoId: terminadoId, codigo: terminadoReal.codigo, ubicacion,
           producto: terminadoReal.producto, talla: terminadoReal.talla, cantidad: cant,
           costoUnitario: costoUnitarioReal, total: costoTotalReal,
           insumos: consumoReal.map((c) => ({ materiaPrimaId: c.materiaPrimaId, cantidad: c.necesario, costoUnitario: c.costoUnitarioMP })),
         };
 
         return {
-          productos: nuevosProductos,
+          inventarios: nuevosInventarios,
           movimientos: nuevosMovimientos,
           producciones: [...actuales.producciones, produccion],
         };
-      }, ["modelos"]);
+      });
 
       showToast("success", `Producción registrada. Costo actualizado a ${formatSoles(costoFinal)}.`);
       registrarAuditoria({
@@ -396,30 +418,50 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
 }
 
 
-const ETAPAS = ["Tomado", "Corte", "Costura", "Acabado", "Completado"];
-
-function PedidosPanel({ productos, variantes, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol, nombre }) {
+function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol, nombre, ubicacion }) {
   const [showForm, setShowForm] = useState(false);
   const [cliente, setCliente] = useState("");
   const [productoId, setProductoId] = useState("");
   const [cantidad, setCantidad] = useState("");
   const [precioCotizado, setPrecioCotizado] = useState("");
   const [fechaEntrega, setFechaEntrega] = useState("");
+  const [nuevaOperacion, setNuevaOperacion] = useState("");
+  const [operacionesTemp, setOperacionesTemp] = useState([]); // solo cuando el modelo no tiene operaciones aún
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [completandoId, setCompletandoId] = useState(null);
+  const [togglingId, setTogglingId] = useState(null);
 
   const producto = terminados.find((p) => p.id === productoId);
   const cant = Number(cantidad) || 0;
   const precio = Number(precioCotizado) || 0;
+  // Las operaciones (Corte, Costura, Acabado...) se definen UNA VEZ por
+  // modelo (código) y quedan guardadas ahí para siempre — la próxima vez
+  // que se tome un pedido de este mismo modelo, ya no se vuelven a pedir.
+  const operacionesModelo = producto?.operaciones || [];
+  const modeloTieneOperaciones = operacionesModelo.length > 0;
 
   function reset() {
-    setCliente(""); setProductoId(""); setCantidad(""); setPrecioCotizado(""); setFechaEntrega(""); setError("");
+    setCliente(""); setProductoId(""); setCantidad(""); setPrecioCotizado(""); setFechaEntrega("");
+    setOperacionesTemp([]); setNuevaOperacion(""); setError("");
+  }
+
+  function agregarOperacionTemp() {
+    const v = nuevaOperacion.trim();
+    if (!v) return;
+    if (operacionesTemp.includes(v)) return setError("Esa operación ya está en la lista.");
+    setOperacionesTemp([...operacionesTemp, v]);
+    setNuevaOperacion("");
+    setError("");
+  }
+
+  function quitarOperacionTemp(op) {
+    setOperacionesTemp(operacionesTemp.filter((o) => o !== op));
   }
 
   // Tomar un pedido NO mueve stock todavía — es solo seguimiento (cliente,
   // precio cotizado, fecha de entrega). El stock y el costo real recién se
-  // mueven cuando el pedido se marca como "Completado" (ver más abajo).
+  // mueven cuando se completan TODAS las operaciones (ver completarPedido).
   async function handleCrear(e) {
     e.preventDefault();
     if (enviando) return;
@@ -431,14 +473,27 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
     if (!producto.receta || producto.receta.length === 0) {
       return setError("Este producto no tiene una Ficha técnica definida todavía. Ve a la pestaña 'Fichas técnicas' primero.");
     }
+    const operacionesAUsar = modeloTieneOperaciones ? operacionesModelo : operacionesTemp;
+    if (operacionesAUsar.length === 0) {
+      return setError("Agrega al menos una operación de producción (ej. Corte) para poder seguir el avance del pedido.");
+    }
 
     setEnviando(true);
     setError("");
     try {
+      // Si el modelo todavía no tenía operaciones definidas, se guardan
+      // ahora en el modelo — quedan para siempre, no solo para este pedido.
+      if (!modeloTieneOperaciones) {
+        const nuevosModelos = modelos.map((m) =>
+          m.codigo === producto.codigo ? { ...m, operaciones: operacionesTemp } : m
+        );
+        await onSaveModelos(nuevosModelos);
+      }
       const nuevoPedido = {
         id: `PED${Date.now()}`, fecha: todayStr(), cliente: cliente.trim(),
         productoId, codigo: producto.codigo, producto: producto.producto, talla: producto.talla,
         cantidad: cant, precioCotizado: precio, fechaEntrega, etapa: "Tomado",
+        operaciones: operacionesAUsar, operacionesCompletadas: [],
       };
       await onSave(variantes, movimientos, ventas, undefined, producciones, [...pedidos, nuevoPedido]);
       showToast("success", `Pedido de ${cliente.trim()} registrado.`);
@@ -455,17 +510,31 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
     }
   }
 
-  async function avanzarEtapa(pedido, nuevaEtapa) {
-    if (nuevaEtapa === "Completado") {
-      return completarPedido(pedido);
-    }
-    const nuevosPedidos = pedidos.map((p) => (p.id === pedido.id ? { ...p, etapa: nuevaEtapa } : p));
-    await onSave(variantes, movimientos, ventas, undefined, producciones, nuevosPedidos);
-    showToast("success", `Pedido de ${pedido.cliente} ahora en etapa "${nuevaEtapa}".`);
+  // Marca (o desmarca) una operación del pedido. Si con esto quedan TODAS
+  // las operaciones marcadas, el pedido se completa solo (consume insumos,
+  // registra la venta y calcula el margen — ver completarPedido).
+  async function toggleOperacion(pedido, op) {
+    const yaMarcada = (pedido.operacionesCompletadas || []).includes(op);
+    const nuevasCompletadas = yaMarcada
+      ? pedido.operacionesCompletadas.filter((o) => o !== op)
+      : [...(pedido.operacionesCompletadas || []), op];
+
+    setTogglingId(pedido.id + op);
     registrarAuditoria({
       fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_ETAPA",
-      detalle: `Pedido de ${pedido.cliente} pasó a etapa "${nuevaEtapa}"`,
+      detalle: `${yaMarcada ? "Desmarcó" : "Marcó"} "${op}" en el pedido de ${pedido.cliente} (${nuevasCompletadas.length}/${pedido.operaciones.length})`,
     }).catch(() => {});
+
+    const todasCompletas = pedido.operaciones.every((o) => nuevasCompletadas.includes(o));
+    if (todasCompletas) {
+      await completarPedido(pedido, nuevasCompletadas);
+      setTogglingId(null);
+      return;
+    }
+
+    const nuevosPedidos = pedidos.map((p) => (p.id === pedido.id ? { ...p, operacionesCompletadas: nuevasCompletadas } : p));
+    await onSave(variantes, movimientos, ventas, undefined, producciones, nuevosPedidos);
+    setTogglingId(null);
   }
 
   // Al completar un pedido pasan DOS cosas de negocio a la vez: se
@@ -473,70 +542,86 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
   // se entrega al cliente (eso es una venta: descuenta el stock recién
   // producido y registra el ingreso). Todo en una sola transacción, para
   // que no quede "a medias" si algo falla a mitad de camino.
-  async function completarPedido(pedido) {
+  async function completarPedido(pedido, operacionesCompletadasFinal) {
     setCompletandoId(pedido.id);
     try {
       let margenFinal = 0;
-      await operarInventarioSeguro(["productos", "movimientos", "producciones", "ventas", "pedidos"], (actuales) => {
-        const modelosPorCodigo = Object.fromEntries(actuales.modelos.map((m) => [m.codigo, m]));
-        const completos = actuales.productos.map((p) => ({ ...(modelosPorCodigo[p.codigo] || {}), ...p }));
-        const terminadoReal = completos.find((p) => p.id === pedido.productoId);
+      await operarInventarioSeguro(["inventarios", "movimientos", "producciones", "ventas", "pedidos"], (actuales) => {
+        const invPorClave = Object.fromEntries(actuales.inventarios.map((i) => [i.id, i]));
+        const leerInv = (varianteId) => {
+          const inv = invPorClave[`${varianteId}__${ubicacion}`];
+          if (inv) return inv;
+          const enPantalla = productos.find((p) => p.id === varianteId);
+          return {
+            id: `${varianteId}__${ubicacion}`, varianteId, ubicacion,
+            stock: enPantalla?.stock || 0, stockMinimo: enPantalla?.stockMinimo ?? null,
+            costoUnitario: enPantalla?.costoUnitario ?? null,
+            fechaIncorporacion: enPantalla?.fechaIncorporacion || todayStr(),
+          };
+        };
+
+        const terminadoReal = productos.find((p) => p.id === pedido.productoId);
         if (!terminadoReal) throw new Error("Ese producto ya no existe en el catálogo.");
         const receta = terminadoReal.receta || [];
         if (receta.length === 0) throw new Error("Este producto ya no tiene una Ficha técnica definida.");
 
         const consumo = receta.map((r) => {
-          const mp = completos.find((p) => p.id === r.materiaPrimaId);
+          const mpPantalla = productos.find((p) => p.id === r.materiaPrimaId);
+          const mpInv = leerInv(r.materiaPrimaId);
           const necesario = round2(r.cantidadPorUnidad * pedido.cantidad);
-          return { materiaPrimaId: r.materiaPrimaId, materiaPrima: mp, necesario, costoUnitarioMP: mp?.costoUnitario ?? null };
+          return { materiaPrimaId: r.materiaPrimaId, materiaPrima: mpPantalla, inv: mpInv, necesario, costoUnitarioMP: mpInv.costoUnitario };
         });
-        const faltante = consumo.find((c) => !c.materiaPrima || c.materiaPrima.stock < c.necesario);
+        const faltante = consumo.find((c) => !c.materiaPrima || c.inv.stock < c.necesario);
         if (faltante) {
-          const nombre = faltante.materiaPrima ? faltante.materiaPrima.producto : "un insumo de la ficha técnica";
-          const disponible = faltante.materiaPrima ? faltante.materiaPrima.stock : 0;
-          throw new Error(`Stock insuficiente de ${nombre}. Ahora mismo solo hay ${disponible}.`);
+          const nombreInsumo = faltante.materiaPrima ? faltante.materiaPrima.producto : "un insumo de la ficha técnica";
+          const disponible = faltante.materiaPrima ? faltante.inv.stock : 0;
+          throw new Error(`Stock insuficiente de ${nombreInsumo}. Ahora mismo solo hay ${disponible}.`);
         }
 
         const costoTotalReal = round2(consumo.reduce((s, c) => s + (c.costoUnitarioMP || 0) * c.necesario, 0));
         const costoUnitarioReal = pedido.cantidad > 0 ? round2(costoTotalReal / pedido.cantidad) : 0;
-        const stockAnterior = terminadoReal.stock;
-        const costoAnterior = terminadoReal.costoUnitario;
-        const nuevoCostoPromedio = costoAnterior != null && stockAnterior > 0
-          ? round2((stockAnterior * costoAnterior + pedido.cantidad * costoUnitarioReal) / (stockAnterior + pedido.cantidad))
+        const invTerminado = leerInv(pedido.productoId);
+        const nuevoCostoPromedio = invTerminado.costoUnitario != null && invTerminado.stock > 0
+          ? round2((invTerminado.stock * invTerminado.costoUnitario + pedido.cantidad * costoUnitarioReal) / (invTerminado.stock + pedido.cantidad))
           : costoUnitarioReal;
 
-        // Stock: se descuentan los insumos; el producto terminado sube y
-        // baja en el mismo movimiento porque se fabrica y se entrega en el
-        // acto — el stock general de terminado no cambia, pero sí su costo
-        // promedio (por eso se recalcula) y sí queda registro de ambos pasos.
-        const nuevosProductos = actuales.productos.map((p) => {
-          if (p.id === pedido.productoId) return { ...p, costoUnitario: nuevoCostoPromedio };
-          const consumido = consumo.find((c) => c.materiaPrimaId === p.id);
-          if (consumido) return { ...p, stock: round2(p.stock - consumido.necesario) };
-          return p;
-        });
+        // El producto terminado se fabrica y se entrega en el acto: su
+        // stock sube y baja en el mismo movimiento, así que no cambia —
+        // pero sí se recalcula su costo promedio, y sí quedan registrados
+        // ambos pasos (producción y venta) para trazabilidad.
+        const cambios = {
+          [invTerminado.id]: { ...invTerminado, costoUnitario: nuevoCostoPromedio },
+        };
+        for (const c of consumo) {
+          const yaModificado = cambios[c.inv.id] || c.inv;
+          cambios[c.inv.id] = { ...yaModificado, stock: round2(yaModificado.stock - c.necesario) };
+        }
+        const nuevosInventarios = [
+          ...actuales.inventarios.filter((i) => !cambios[i.id]),
+          ...Object.values(cambios),
+        ];
 
         const nuevosMovimientos = [
           ...actuales.movimientos,
           ...consumo.map((c) => ({
-            id: `M${Date.now()}-${c.materiaPrimaId}`, fecha: todayStr(), tipo: "SALIDA", productoId: c.materiaPrimaId,
+            id: `M${Date.now()}-${c.materiaPrimaId}`, fecha: todayStr(), tipo: "SALIDA", productoId: c.materiaPrimaId, ubicacion,
             productoNombre: `${c.materiaPrima.producto}${c.materiaPrima.talla !== "Única" ? " - " + c.materiaPrima.talla : ""}`,
             cantidad: c.necesario, motivo: `Consumo para pedido de ${pedido.cliente}`,
           })),
           {
-            id: `M${Date.now()}-prod`, fecha: todayStr(), tipo: "ENTRADA", productoId: pedido.productoId,
+            id: `M${Date.now()}-prod`, fecha: todayStr(), tipo: "ENTRADA", productoId: pedido.productoId, ubicacion,
             productoNombre: `${terminadoReal.producto}${terminadoReal.talla !== "Única" ? " - " + terminadoReal.talla : ""}`,
             cantidad: pedido.cantidad, motivo: `Producción para pedido de ${pedido.cliente}`,
           },
           {
-            id: `M${Date.now()}-venta`, fecha: todayStr(), tipo: "VENTA", productoId: pedido.productoId,
+            id: `M${Date.now()}-venta`, fecha: todayStr(), tipo: "VENTA", productoId: pedido.productoId, ubicacion,
             productoNombre: `${terminadoReal.producto}${terminadoReal.talla !== "Única" ? " - " + terminadoReal.talla : ""}`,
             cantidad: pedido.cantidad, motivo: `Entrega de pedido a ${pedido.cliente}`,
           },
         ];
 
         const produccion = {
-          id: `P${Date.now()}`, fecha: todayStr(), productoId: pedido.productoId, codigo: terminadoReal.codigo,
+          id: `P${Date.now()}`, fecha: todayStr(), productoId: pedido.productoId, codigo: terminadoReal.codigo, ubicacion,
           producto: terminadoReal.producto, talla: terminadoReal.talla, cantidad: pedido.cantidad,
           costoUnitario: costoUnitarioReal, total: costoTotalReal,
           insumos: consumo.map((c) => ({ materiaPrimaId: c.materiaPrimaId, cantidad: c.necesario, costoUnitario: c.costoUnitarioMP })),
@@ -544,7 +629,7 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
 
         const precioUnitario = pedido.cantidad > 0 ? round2(pedido.precioCotizado / pedido.cantidad) : 0;
         const venta = {
-          id: `V${Date.now()}`, fecha: todayStr(), idProducto: terminadoReal.codigo, producto: terminadoReal.producto,
+          id: `V${Date.now()}`, fecha: todayStr(), idProducto: terminadoReal.codigo, producto: terminadoReal.producto, ubicacion,
           cantidad: pedido.cantidad, talla: terminadoReal.talla, descripcion: `Pedido - ${pedido.cliente}`,
           precio: precioUnitario, efectivo: 0, yape: 0, tarjeta: 0, total: pedido.precioCotizado,
           costoUnitario: costoUnitarioReal, pedidoId: pedido.id,
@@ -553,18 +638,18 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
         margenFinal = round2(pedido.precioCotizado - costoTotalReal);
         const nuevosPedidos = actuales.pedidos.map((p) =>
           p.id === pedido.id
-            ? { ...p, etapa: "Completado", completadoEn: todayStr(), costoProduccion: costoTotalReal, margen: margenFinal }
+            ? { ...p, etapa: "Completado", operacionesCompletadas: operacionesCompletadasFinal || p.operaciones, completadoEn: todayStr(), costoProduccion: costoTotalReal, margen: margenFinal }
             : p
         );
 
         return {
-          productos: nuevosProductos,
+          inventarios: nuevosInventarios,
           movimientos: nuevosMovimientos,
           producciones: [...actuales.producciones, produccion],
           ventas: [...actuales.ventas, venta],
           pedidos: nuevosPedidos,
         };
-      }, ["modelos"]);
+      });
 
       showToast("success", `Pedido de ${pedido.cliente} completado y entregado. Margen: ${formatSoles(margenFinal)}.`);
       registrarAuditoria({
@@ -642,6 +727,57 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
                 </div>
               </div>
 
+              {productoId && (
+                <div className="border-t border-stone-100 pt-3">
+                  <label className="block text-xs font-medium text-stone-600 mb-1">
+                    Operaciones de producción {modeloTieneOperaciones ? "" : <span className="text-red-600">*</span>}
+                  </label>
+                  {modeloTieneOperaciones ? (
+                    <>
+                      <div className="flex flex-wrap gap-1.5 mb-1">
+                        {operacionesModelo.map((op) => (
+                          <span key={op} className="px-2.5 py-1 rounded-full bg-stone-100 text-xs font-medium text-stone-600">{op}</span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-stone-400">
+                        Ya definidas para el modelo {producto?.codigo} — se usan igual en todos sus pedidos.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs text-stone-500 mb-2">
+                        Este modelo todavía no tiene operaciones definidas. Escríbelas en orden (ej. Corte, Costura, Acabado) — quedan guardadas para siempre en el modelo {producto?.codigo}.
+                      </p>
+                      {operacionesTemp.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {operacionesTemp.map((op, i) => (
+                            <span key={op} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-stone-100 text-xs font-medium text-stone-700">
+                              <span className="text-stone-400">{i + 1}.</span> {op}
+                              <button type="button" onClick={() => quitarOperacionTemp(op)} className="text-stone-400 hover:text-red-600">
+                                <XCircle size={12} />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2">
+                        <input
+                          value={nuevaOperacion}
+                          onChange={(e) => setNuevaOperacion(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); agregarOperacionTemp(); } }}
+                          placeholder="Ej: Corte"
+                          className="flex-1 px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500"
+                        />
+                        <button type="button" onClick={agregarOperacionTemp}
+                          className="px-3 py-2 rounded-lg border border-stone-300 text-sm font-medium text-stone-700 hover:bg-stone-50 inline-flex items-center gap-1">
+                          <Plus size={14} /> Agregar
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               {error && (
                 <p className="text-sm text-red-600 flex items-center gap-1.5">
                   <XCircle size={14} /> {error}
@@ -670,29 +806,62 @@ function PedidosPanel({ productos, variantes, movimientos, ventas, producciones,
               const dias = diasParaEntrega(p.fechaEntrega);
               const urgente = dias <= 3;
               const vencido = dias < 0;
+              const ops = p.operaciones || [];
+              const hechas = p.operacionesCompletadas || [];
+              const avance = ops.length > 0 ? Math.round((hechas.length / ops.length) * 100) : 0;
               return (
-                <div key={p.id} className="px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-stone-800">{p.cliente}</p>
-                    <p className="text-xs text-stone-500">
-                      {p.producto}{p.talla !== "Única" ? ` - ${p.talla}` : ""} · {p.cantidad} unid. · Entrega: {formatFecha(p.fechaEntrega)}
-                    </p>
+                <div key={p.id} className="px-4 py-3 space-y-2.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-stone-800">{p.cliente}</p>
+                      <p className="text-xs text-stone-500">
+                        {p.producto}{p.talla !== "Única" ? ` - ${p.talla}` : ""} · {p.cantidad} unid. · Entrega: {formatFecha(p.fechaEntrega)}
+                      </p>
+                    </div>
+                    <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${
+                      vencido ? "bg-red-100 text-red-700" : urgente ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-stone-500"
+                    }`}>
+                      {vencido ? `Vencido hace ${Math.abs(dias)}d` : dias === 0 ? "Entrega hoy" : `Faltan ${dias}d`}
+                    </span>
                   </div>
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-full whitespace-nowrap ${
-                    vencido ? "bg-red-100 text-red-700" : urgente ? "bg-amber-100 text-amber-700" : "bg-stone-100 text-stone-500"
-                  }`}>
-                    {vencido ? `Vencido hace ${Math.abs(dias)}d` : dias === 0 ? "Entrega hoy" : `Faltan ${dias}d`}
-                  </span>
-                  <select
-                    value={p.etapa}
-                    onChange={(e) => avanzarEtapa(p, e.target.value)}
-                    disabled={completandoId === p.id}
-                    className="px-2 py-1.5 rounded-lg border border-stone-300 text-xs text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-red-500"
-                  >
-                    {ETAPAS.map((et) => (
-                      <option key={et} value={et}>{et}</option>
-                    ))}
-                  </select>
+
+                  {ops.length > 0 && (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-red-600 rounded-full transition-all" style={{ width: `${avance}%` }} />
+                        </div>
+                        <span className="text-xs font-semibold text-stone-600 shrink-0 w-20 text-right">
+                          {hechas.length}/{ops.length} · {avance}%
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {ops.map((op) => {
+                          const hecha = hechas.includes(op);
+                          const cargando = togglingId === p.id + op;
+                          return (
+                            <button
+                              key={op}
+                              onClick={() => toggleOperacion(p, op)}
+                              disabled={cargando || completandoId === p.id}
+                              title={hecha ? "Marcada — clic para desmarcar" : "Marcar como completada"}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition disabled:opacity-50 ${
+                                hecha
+                                  ? "bg-teal-50 border-teal-300 text-teal-700"
+                                  : "bg-white border-stone-300 text-stone-600 hover:bg-stone-50"
+                              }`}
+                            >
+                              {hecha ? <CheckCircle2 size={13} /> : <span className="w-3 h-3 rounded-full border border-stone-400 inline-block" />}
+                              {op}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-stone-400">
+                        Al marcar la última operación, el pedido se completa solo: consume la materia prima y registra la venta.
+                      </p>
+                    </>
+                  )}
                 </div>
               );
             })}

@@ -2,12 +2,12 @@ import React, { useState } from "react";
 import {
   ArrowLeftRight, Plus, XCircle,
 } from "lucide-react";
-import { todayStr } from "../utils/format.js";
+import { todayStr, round2 } from "../utils/format.js";
 import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Movimientos({ productos, movimientos, onSave, showToast, nombre, rol }) {
+export default function Movimientos({ productos, movimientos, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion }) {
   const [tipo, setTipo] = useState("ENTRADA");
   const [productoId, setProductoId] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -22,35 +22,45 @@ export default function Movimientos({ productos, movimientos, onSave, showToast,
     e.preventDefault();
     if (guardando) return;
     if (!productoId) return setError("Selecciona un producto.");
+    if (!producto) return setError("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
     const cant = Number(cantidad);
     if (!cantidad || isNaN(cant) || cant <= 0) return setError("Ingresa una cantidad válida, mayor a cero.");
     if (tipo === "SALIDA" && producto && producto.stock < cant) {
       return setError(`Stock insuficiente. Solo hay ${producto.stock} ${producto.unidad}.`);
     }
 
+    const claveInventario = `${productoId}__${ubicacion}`;
+
     setGuardando(true);
     setError("");
     try {
-      await operarInventarioSeguro(["productos", "movimientos"], (actuales) => {
-        const variante = actuales.productos.find((p) => p.id === productoId);
-        if (!variante) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
-        const prodReal = { ...(actuales.modelos.find((m) => m.codigo === variante.codigo) || {}), ...variante };
+      await operarInventarioSeguro(["inventarios", "movimientos"], (actuales) => {
+        const invActual = actuales.inventarios.find((i) => i.id === claveInventario);
+        const stockActual = invActual ? invActual.stock : (producto?.stock || 0);
         const delta = tipo === "ENTRADA" ? cant : -cant;
-        if (tipo === "SALIDA" && prodReal.stock < cant) {
-          throw new Error(`Stock insuficiente. Ahora mismo solo hay ${prodReal.stock} ${prodReal.unidad} (puede que alguien más lo haya movido).`);
+        if (tipo === "SALIDA" && stockActual < cant) {
+          throw new Error(`Stock insuficiente. Ahora mismo solo hay ${stockActual} ${producto?.unidad || ""} (puede que alguien más lo haya movido).`);
         }
 
-        const nuevosProductos = actuales.productos.map((p) =>
-          p.id === productoId ? { ...p, stock: p.stock + delta } : p
-        );
+        const nuevoInv = {
+          id: claveInventario, varianteId: productoId, ubicacion,
+          stock: round2(stockActual + delta),
+          stockMinimo: invActual ? invActual.stockMinimo : (producto?.stockMinimo ?? null),
+          costoUnitario: invActual ? invActual.costoUnitario : (producto?.costoUnitario ?? null),
+          fechaIncorporacion: invActual ? invActual.fechaIncorporacion : (producto?.fechaIncorporacion || todayStr()),
+        };
+        const nuevosInventarios = invActual
+          ? actuales.inventarios.map((i) => (i.id === claveInventario ? nuevoInv : i))
+          : [...actuales.inventarios, nuevoInv];
+
         const mov = {
-          id: `M${Date.now()}`, fecha, tipo, productoId,
-          productoNombre: `${prodReal.producto}${prodReal.talla !== "Única" ? " - " + prodReal.talla : ""}`,
+          id: `M${Date.now()}`, fecha, tipo, productoId, ubicacion,
+          productoNombre: `${producto.producto}${producto.talla !== "Única" ? " - " + producto.talla : ""}`,
           cantidad: cant, motivo,
         };
 
-        return { productos: nuevosProductos, movimientos: [...actuales.movimientos, mov] };
-      }, ["modelos"]);
+        return { inventarios: nuevosInventarios, movimientos: [...actuales.movimientos, mov] };
+      });
 
       showToast("success", `${tipo === "ENTRADA" ? "Entrada" : "Salida"} registrada. Stock actualizado.`);
       registrarAuditoria({

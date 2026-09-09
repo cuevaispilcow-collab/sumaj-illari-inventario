@@ -7,7 +7,7 @@ import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Compras({ productos, movimientos, compras, onSave, showToast, nombre, rol }) {
+export default function Compras({ productos, movimientos, compras, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion }) {
   const [tab, setTab] = useState("registro"); // "registro" | "pareto"
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
@@ -32,6 +32,7 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
     e.preventDefault();
     if (enviando) return;
     if (!productoId) return setError("Selecciona un producto.");
+    if (!producto) return setError("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
     if (!cantidad || cant <= 0) return setError("Ingresa una cantidad válida, mayor a cero.");
     if (costoUnitario === "" || costo < 0) return setError("Ingresa un costo unitario válido.");
     if (!proveedor.trim()) return setError("Ingresa el nombre del proveedor.");
@@ -40,49 +41,62 @@ export default function Compras({ productos, movimientos, compras, onSave, showT
       return setError("El precio mínimo de venta debe ser un número válido.");
     }
 
+    const claveInventario = `${productoId}__${ubicacion}`;
+
     setEnviando(true);
     setError("");
     try {
       let costoFinal = costo;
       // El costo promedio ponderado depende del stock y costo que haya
-      // JUSTO antes de guardar. Si dos compras del mismo producto se
-      // registran casi al mismo tiempo, calcular esto con datos viejos
-      // dejaría el costo promedio mal calculado — por eso se recalcula
-      // adentro de la transacción, con el stock real del servidor.
-      await operarInventarioSeguro(["productos", "compras", "movimientos"], (actuales) => {
-        const variante = actuales.productos.find((p) => p.id === productoId);
-        if (!variante) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
-        const prodReal = { ...(actuales.modelos.find((m) => m.codigo === variante.codigo) || {}), ...variante };
-
-        const stockAnterior = prodReal.stock;
-        const costoAnterior = prodReal.costoUnitario;
+      // JUSTO antes de guardar, EN ESTA UBICACIÓN — cada ubicación lleva
+      // su propio costo. Si dos compras del mismo producto se registran
+      // casi al mismo tiempo, calcular esto con datos viejos dejaría el
+      // costo promedio mal calculado — por eso se recalcula adentro de
+      // la transacción, con el dato real del servidor.
+      const colecciones = pMin != null ? ["inventarios", "compras", "movimientos", "productos"] : ["inventarios", "compras", "movimientos"];
+      await operarInventarioSeguro(colecciones, (actuales) => {
+        const invActual = actuales.inventarios.find((i) => i.id === claveInventario);
+        const stockAnterior = invActual ? invActual.stock : (producto?.stock || 0);
+        const costoAnterior = invActual ? invActual.costoUnitario : (producto?.costoUnitario ?? null);
         const nuevoCosto = costoAnterior != null && stockAnterior > 0
           ? round2((stockAnterior * costoAnterior + cant * costo) / (stockAnterior + cant))
           : costo;
         costoFinal = nuevoCosto;
 
-        const nuevosProductos = actuales.productos.map((p) =>
-          p.id === productoId
-            ? { ...p, stock: p.stock + cant, costoUnitario: nuevoCosto, ...(pMin != null ? { precioMinimo: pMin } : {}) }
-            : p
-        );
+        const nuevoInv = {
+          id: claveInventario, varianteId: productoId, ubicacion,
+          stock: round2(stockAnterior + cant), costoUnitario: nuevoCosto,
+          stockMinimo: invActual ? invActual.stockMinimo : (producto?.stockMinimo ?? null),
+          fechaIncorporacion: invActual ? invActual.fechaIncorporacion : (producto?.fechaIncorporacion || todayStr()),
+        };
+        const nuevosInventarios = invActual
+          ? actuales.inventarios.map((i) => (i.id === claveInventario ? nuevoInv : i))
+          : [...actuales.inventarios, nuevoInv];
+
         const compra = {
           id: `C${Date.now()}`,
-          fecha, productoId, codigo: prodReal.codigo, producto: prodReal.producto, talla: prodReal.talla,
-          tipo: prodReal.tipo, cantidad: cant, costoUnitario: costo, proveedor: proveedor.trim(), total: totalCalc,
+          fecha, productoId, codigo: producto.codigo, producto: producto.producto, talla: producto.talla, ubicacion,
+          tipo: producto.tipo, cantidad: cant, costoUnitario: costo, proveedor: proveedor.trim(), total: totalCalc,
         };
         const mov = {
-          id: `M${Date.now()}`, fecha, tipo: "ENTRADA", productoId,
-          productoNombre: `${prodReal.producto}${prodReal.talla !== "Única" ? " - " + prodReal.talla : ""}`,
+          id: `M${Date.now()}`, fecha, tipo: "ENTRADA", productoId, ubicacion,
+          productoNombre: `${producto.producto}${producto.talla !== "Única" ? " - " + producto.talla : ""}`,
           cantidad: cant, motivo: `Compra a ${proveedor.trim()}`,
         };
 
-        return {
-          productos: nuevosProductos,
+        const resultado = {
+          inventarios: nuevosInventarios,
           compras: [...actuales.compras, compra],
           movimientos: [...actuales.movimientos, mov],
         };
-      }, ["modelos"]);
+        // El precio mínimo de venta SÍ es compartido entre ubicaciones
+        // (no cambia según dónde se compre), así que se guarda en el
+        // producto/variante, no en el inventario de esta ubicación.
+        if (pMin != null) {
+          resultado.productos = actuales.productos.map((p) => (p.id === productoId ? { ...p, precioMinimo: pMin } : p));
+        }
+        return resultado;
+      });
 
       showToast("success", `Compra registrada. Costo actualizado a ${formatSoles(costoFinal)}.`);
       registrarAuditoria({

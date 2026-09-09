@@ -7,7 +7,7 @@ import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Ventas({ productos, movimientos, ventas, onSave, showToast, nombre, rol }) {
+export default function Ventas({ productos, movimientos, ventas, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion }) {
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
   const [productoId, setProductoId] = useState("");
@@ -49,39 +49,52 @@ export default function Ventas({ productos, movimientos, ventas, onSave, showToa
       return setError(`Stock insuficiente. Solo hay ${producto.stock} ${producto.unidad}.`);
     }
 
+    const claveInventario = `${productoId}__${ubicacion}`;
+
     setGuardando(true);
     setError("");
     try {
-      await operarInventarioSeguro(["productos", "ventas", "movimientos"], (actuales) => {
-        const prodRealVariante = actuales.productos.find((p) => p.id === productoId);
-        if (!prodRealVariante) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
-        const prodReal = { ...(actuales.modelos.find((m) => m.codigo === prodRealVariante.codigo) || {}), ...prodRealVariante };
-        if (prodReal.stock < cant) {
-          throw new Error(`Stock insuficiente. Ahora mismo solo hay ${prodReal.stock} ${prodReal.unidad} (puede que alguien más acabe de vender).`);
+      await operarInventarioSeguro(["inventarios", "ventas", "movimientos"], (actuales) => {
+        const invActual = actuales.inventarios.find((i) => i.id === claveInventario);
+        // Si todavía no existe un registro de inventario para esta
+        // ubicación (ej. primera venta desde que separamos por
+        // ubicación), se usa el stock que ya traía el producto como
+        // punto de partida — así no se pierde nada de lo que ya existía.
+        const stockBase = invActual ? invActual.stock : (producto?.stock || 0);
+        if (stockBase < cant) {
+          throw new Error(`Stock insuficiente. Ahora mismo solo hay ${stockBase} ${producto?.unidad || ""} (puede que alguien más acabe de vender).`);
         }
 
-        const nuevosProductos = actuales.productos.map((p) =>
-          p.id === productoId ? { ...p, stock: p.stock - cant } : p
-        );
+        const nuevoInv = {
+          id: claveInventario, varianteId: productoId, ubicacion,
+          stock: round2(stockBase - cant),
+          stockMinimo: invActual ? invActual.stockMinimo : (producto?.stockMinimo ?? null),
+          costoUnitario: invActual ? invActual.costoUnitario : (producto?.costoUnitario ?? null),
+          fechaIncorporacion: invActual ? invActual.fechaIncorporacion : (producto?.fechaIncorporacion || todayStr()),
+        };
+        const nuevosInventarios = invActual
+          ? actuales.inventarios.map((i) => (i.id === claveInventario ? nuevoInv : i))
+          : [...actuales.inventarios, nuevoInv];
+
         const venta = {
           id: `V${Date.now()}`,
-          fecha, idProducto: prodReal.codigo, producto: prodReal.producto,
-          cantidad: cant, talla: prodReal.talla, descripcion: descripcion || prodReal.descripcion || "",
+          fecha, idProducto: producto.codigo, producto: producto.producto, ubicacion,
+          cantidad: cant, talla: producto.talla, descripcion: descripcion || producto.descripcion || "",
           precio: prec, efectivo: Number(efectivo) || 0, yape: Number(yape) || 0, tarjeta: Number(tarjeta) || 0, total: totalCalc,
-          costoUnitario: prodReal.costoUnitario != null ? prodReal.costoUnitario : null,
+          costoUnitario: nuevoInv.costoUnitario,
         };
         const mov = {
-          id: `M${Date.now()}`, fecha, tipo: "VENTA", productoId,
-          productoNombre: `${prodReal.producto}${prodReal.talla !== "Única" ? " - " + prodReal.talla : ""}`,
+          id: `M${Date.now()}`, fecha, tipo: "VENTA", productoId, ubicacion,
+          productoNombre: `${producto.producto}${producto.talla !== "Única" ? " - " + producto.talla : ""}`,
           cantidad: cant, motivo: "Venta",
         };
 
         return {
-          productos: nuevosProductos,
+          inventarios: nuevosInventarios,
           ventas: [...actuales.ventas, venta],
           movimientos: [...actuales.movimientos, mov],
         };
-      }, ["modelos"]);
+      });
 
       showToast("success", "Venta registrada. Stock actualizado.");
       registrarAuditoria({

@@ -8,7 +8,7 @@ import EmptyState from "../components/EmptyState.jsx";
 
 import { registrarAuditoria } from "../firestoreSync.js";
 
-export default function Productos({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, onSave, showToast, setView, rol, nombre: nombreUsuario }) {
+export default function Productos({ productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, movimientos, ventas, onSave, showToast, setView, rol, ubicacion, nombre: nombreUsuario }) {
   const [q, setQ] = useState("");
   const [tipo, setTipo] = useState("todos");
   const [editingId, setEditingId] = useState(null);
@@ -32,14 +32,31 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
     setEditValue(p.stockMinimo != null ? String(p.stockMinimo) : "");
   }
 
+  // El stock mínimo y el umbral de rotación son propios de CADA
+  // ubicación (lo que es "poco stock" en Tienda X no es lo mismo que en
+  // la planta), así que se guardan en el inventario de esta ubicación.
+  function guardarEnInventario(p, cambios) {
+    const clave = `${p.id}__${ubicacion}`;
+    const existente = (inventarios || []).find((i) => i.id === clave);
+    const base = existente || {
+      id: clave, varianteId: p.id, ubicacion,
+      stock: p.stock || 0, stockMinimo: p.stockMinimo ?? null,
+      costoUnitario: p.costoUnitario ?? null, fechaIncorporacion: p.fechaIncorporacion || null,
+    };
+    const actualizado = { ...base, ...cambios };
+    const nuevos = existente
+      ? (inventarios || []).map((i) => (i.id === clave ? actualizado : i))
+      : [...(inventarios || []), actualizado];
+    return onSaveInventarios(nuevos);
+  }
+
   async function saveEdit(p) {
     const val = editValue.trim() === "" ? null : Number(editValue);
     if (editValue.trim() !== "" && (isNaN(val) || val < 0)) {
       showToast("error", "El stock mínimo debe ser un número válido, 0 o mayor.");
       return;
     }
-    const newVariantes = variantes.map((x) => (x.id === p.id ? { ...x, stockMinimo: val } : x));
-    await onSave(newVariantes, movimientos);
+    await guardarEnInventario(p, { stockMinimo: val });
     setEditingId(null);
     showToast("success", "Stock mínimo actualizado.");
   }
@@ -59,8 +76,7 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
       showToast("error", "El umbral de rotación debe ser un número mayor a cero.");
       return;
     }
-    const newVariantes = variantes.map((x) => (x.id === p.id ? { ...x, diasRotacionAlerta: val } : x));
-    await onSave(newVariantes, movimientos);
+    await guardarEnInventario(p, { diasRotacionAlerta: val });
     setEditingRotId(null);
     showToast("success", "Umbral de rotación actualizado.");
   }
@@ -253,6 +269,9 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
           onClose={() => setEditandoProducto(null)}
           nombreUsuario={nombreUsuario}
           rol={rol}
+          inventarios={inventarios}
+          onSaveInventarios={onSaveInventarios}
+          ubicacion={ubicacion}
         />
       )}
     </div>
@@ -260,7 +279,7 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
 }
 
 
-function EditarProductoModal({ producto, productos, variantes, modelos, onSaveModelos, movimientos, ventas, onSave, showToast, onClose, nombreUsuario, rol }) {
+function EditarProductoModal({ producto, productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, ubicacion, movimientos, ventas, onSave, showToast, onClose, nombreUsuario, rol }) {
   const [codigo, setCodigo] = useState(producto.codigo);
   const [categoria, setCategoria] = useState(producto.categoria);
   const [nombre, setNombre] = useState(producto.producto);
@@ -335,14 +354,27 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
       ? modelos.map((m) => (m.codigo === producto.codigo ? modeloActualizado : m))
       : [...modelos, modeloActualizado];
 
-    // Campos propios de esta talla únicamente.
+    // Campos propios de esta talla únicamente (identidad, no stock).
     const original = variantes.find((v) => v.id === producto.id);
     const varianteActualizada = {
       ...original,
       id: nuevoId, codigo: codigo.trim(), talla: talla.trim() || "Única",
-      stock: st, stockMinimo: sm,
     };
     let nuevasVariantes = variantes.map((p) => (p.id === producto.id ? varianteActualizada : p));
+
+    // El stock y stock mínimo son de ESTA ubicación → van al inventario.
+    const claveVieja = `${producto.id}__${ubicacion}`;
+    const claveNueva = `${nuevoId}__${ubicacion}`;
+    const invExistente = (inventarios || []).find((i) => i.id === claveVieja);
+    const invBase = invExistente || {
+      id: claveVieja, varianteId: producto.id, ubicacion,
+      stock: producto.stock || 0, stockMinimo: producto.stockMinimo ?? null,
+      costoUnitario: producto.costoUnitario ?? null, fechaIncorporacion: producto.fechaIncorporacion || null,
+    };
+    const invActualizado = { ...invBase, id: claveNueva, varianteId: nuevoId, stock: st, stockMinimo: sm };
+    const nuevosInventarios = invExistente
+      ? (inventarios || []).map((i) => (i.id === claveVieja ? invActualizado : i))
+      : [...(inventarios || []), invActualizado];
 
     // Si cambió el ID (código o talla), mantenemos el historial enlazado
     // actualizando las referencias en movimientos, ventas Y en las Fichas
@@ -368,6 +400,7 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
     try {
       setGuardando(true);
       await onSaveModelos(nuevosModelos);
+      await onSaveInventarios(nuevosInventarios);
       await onSave(nuevasVariantes, nuevosMovimientos, nuevasVentas);
       showToast("success", `Producto "${nombre.trim()}" actualizado.`);
       const camposCambiados = [];
