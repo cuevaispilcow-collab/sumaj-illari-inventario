@@ -5,7 +5,7 @@ import {
 import Logo from "../Logo.jsx";
 import { puedeVer } from "../roles.js";
 
-export default function Sidebar({ view, setView, onResetClick, onExportClick, rol, cerrarSesion }) {
+export default function Sidebar({ view, setView, onResetClick, onExportClick, rol, cerrarSesion, nombreSesion, onCambiarNombre }) {
   const [abierto, setAbierto] = useState(false);
   const tabsTodas = [
     { id: "dashboard", label: "Panel", icon: LayoutDashboard },
@@ -53,6 +53,16 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, ro
         })}
       </nav>
       <div className="px-3 pb-5 pt-3 border-t border-stone-800 space-y-1">
+        {nombreSesion && (
+          <button
+            onClick={onCambiarNombre}
+            title="No soy yo — cambiar"
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs text-stone-500 hover:bg-stone-800 hover:text-stone-300 transition"
+          >
+            <span className="truncate">Vendiendo como: <span className="text-stone-300 font-medium">{nombreSesion}</span></span>
+            <span className="shrink-0 ml-2 underline decoration-dotted">cambiar</span>
+          </button>
+        )}
         {rol === "gerente" && (
           <button
             onClick={onExportClick}
