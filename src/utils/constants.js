@@ -16,7 +16,7 @@ export const UBICACIONES = [
 export const SECCIONES_POR_UBICACION = {
   sumaj_illari: null, // null = no restringe más allá del rol (acceso completo operativo)
   jl_planta: null,
-  tienda_x: ["productos", "ventas", "movimientos"],
+  tienda_x: ["productos", "ventas", "movimientos", "transferencias"],
 };
 
 // Paleta de colores para gráficos, pensada para que se vea consistente

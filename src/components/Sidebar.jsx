@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  Package, TrendingUp, ArrowLeftRight, PackagePlus, ReceiptText, RotateCcw, Download, LayoutDashboard, Menu, X, LogOut, ShoppingCart, Percent, Factory, ClipboardList, LineChart as LineChartIcon,
+  Package, TrendingUp, ArrowLeftRight, ArrowRightLeft, PackagePlus, ReceiptText, RotateCcw, Download, LayoutDashboard, Menu, X, LogOut, ShoppingCart, Percent, Factory, ClipboardList, LineChart as LineChartIcon,
 } from "lucide-react";
 import Logo from "../Logo.jsx";
 import { puedeVer } from "../roles.js";
@@ -15,6 +15,7 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, ro
     { id: "analisis", label: "Análisis", icon: LineChartIcon },
     { id: "margenes", label: "Márgenes", icon: Percent },
     { id: "movimientos", label: "Entradas / salidas", icon: ArrowLeftRight },
+    { id: "transferencias", label: "Transferencias", icon: ArrowRightLeft },
     { id: "compras", label: "Compras", icon: ShoppingCart },
     { id: "produccion", label: "Producción", icon: Factory },
     { id: "auditoria", label: "Auditoría", icon: ClipboardList },

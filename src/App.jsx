@@ -4,7 +4,7 @@ import AuthGate from "./AuthGate.jsx";
 import { escucharColeccion, guardarColeccion, operarInventarioSeguro } from "./firestoreSync.js";
 import { puedeVer, vistaInicial } from "./roles.js";
 import { UBICACIONES } from "./utils/constants.js";
-import { todayStr, filtrarPorUbicacion } from "./utils/format.js";
+import { todayStr, filtrarPorUbicacion, filtrarTransferencias } from "./utils/format.js";
 import Sidebar from "./components/Sidebar.jsx";
 import ConfirmModal from "./components/ConfirmModal.jsx";
 import Toast from "./components/Toast.jsx";
@@ -17,6 +17,7 @@ import Margenes from "./pages/Margenes.jsx";
 import Movimientos from "./pages/Movimientos.jsx";
 import Compras from "./pages/Compras.jsx";
 import Produccion from "./pages/Produccion.jsx";
+import Transferencias from "./pages/Transferencias.jsx";
 import Auditoria from "./pages/Auditoria.jsx";
 import NuevoProducto from "./pages/NuevoProducto.jsx";
 
@@ -64,6 +65,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   const [compras, setCompras] = useState(null);
   const [producciones, setProducciones] = useState(null);
   const [pedidos, setPedidos] = useState(null);
+  const [transferencias, setTransferencias] = useState(null);
   const [auditoria, setAuditoria] = useState(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState(vistaInicial(rol));
@@ -151,12 +153,20 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
       cargados.pedidos = true;
       marcarListo();
     }, manejarError);
+    // Igual que la auditoría: las transferencias tampoco bloquean que la
+    // app esté "lista". Registrar una transferencia no depende de tener
+    // este historial ya cargado (la operación lee el inventario fresco
+    // directo del servidor), así que si por algo esta colección tardara
+    // o fallara, no tiene sentido dejar a todo el mundo esperando.
+    const unsubTransferencias = escucharColeccion("transferencias", (items) => {
+      setTransferencias(items);
+    }, () => {});
     // La auditoría no bloquea que la app esté "lista" — es información
     // de supervisión, no algo que se necesite para operar el día a día.
     const unsubAuditoria = escucharColeccion("auditoria", (items) => {
       setAuditoria(items);
     }, () => {});
-    return () => { unsub1(); unsubModelos(); unsubInventarios(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsubAuditoria(); };
+    return () => { unsub1(); unsubModelos(); unsubInventarios(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsubTransferencias(); unsubAuditoria(); };
   }, []);
 
   // Red de seguridad: si algo falla en segundo plano (por ejemplo, el guardado),
@@ -271,6 +281,10 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   const ventasUbicacion = React.useMemo(() => filtrarPorUbicacion(ventas, ubicacion), [ventas, ubicacion]);
   const movimientosUbicacion = React.useMemo(() => filtrarPorUbicacion(movimientos, ubicacion), [movimientos, ubicacion]);
   const comprasUbicacion = React.useMemo(() => filtrarPorUbicacion(compras, ubicacion), [compras, ubicacion]);
+  // Las transferencias no siguen la misma regla que lo de arriba: una
+  // transferencia involucra a DOS ubicaciones (origen y destino), así que
+  // tiene que aparecer en el historial de ambas, no solo en una.
+  const transferenciasUbicacion = React.useMemo(() => filtrarTransferencias(transferencias, ubicacion), [transferencias, ubicacion]);
 
   function showToast(type, msg) {
     setToast({ type, msg });
@@ -390,6 +404,9 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
           )}
           {vistaSegura === "compras" && (
             <Compras productos={productosCompletos} movimientos={movimientosUbicacion} compras={comprasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
+          )}
+          {vistaSegura === "transferencias" && (
+            <Transferencias productos={productosCompletos} variantes={productos} inventarios={inventarios} transferencias={transferenciasUbicacion} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
           )}
           {vistaSegura === "auditoria" && <Auditoria auditoria={auditoria} />}
           {vistaSegura === "produccion" && (

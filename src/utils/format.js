@@ -33,3 +33,11 @@ export function filtrarPorUbicacion(lista, ubicacion) {
   return (lista || []).filter((item) => (item.ubicacion || "sumaj_illari") === ubicacion);
 }
 
+// Filtra transferencias entre ubicaciones: a diferencia de filtrarPorUbicacion
+// (que compara un solo campo "ubicacion"), una transferencia tiene que
+// aparecer en el historial de SUS DOS ubicaciones involucradas — la que
+// envía (origen) y la que recibe (destino).
+export function filtrarTransferencias(lista, ubicacion) {
+  return (lista || []).filter((t) => t.origen === ubicacion || t.destino === ubicacion);
+}
+
