@@ -59,13 +59,14 @@ export default function Transferencias({ productos, variantes, inventarios, tran
     setGuardando(true);
     setError("");
     try {
-      await operarInventarioSeguro(["inventarios", "movimientos", "transferencias"], (actuales) => {
-        const { nuevosInventarios, movSalida, movEntrada, transferencia } = calcularTransferencia({
-          inventariosActuales: actuales.inventarios, variantes, producto, productoId,
+      await operarInventarioSeguro(["inventarios", "costos", "movimientos", "transferencias"], (actuales) => {
+        const { nuevosInventarios, nuevosCostos, movSalida, movEntrada, transferencia } = calcularTransferencia({
+          inventariosActuales: actuales.inventarios, costosActuales: actuales.costos, variantes, producto, productoId,
           cantidad: cant, origen: ubicacion, destino, usuario: nombre,
         });
         return {
           inventarios: nuevosInventarios,
+          costos: nuevosCostos,
           movimientos: [...actuales.movimientos, movSalida, movEntrada],
           transferencias: [...actuales.transferencias, transferencia],
         };
@@ -128,14 +129,14 @@ export default function Transferencias({ productos, variantes, inventarios, tran
   async function entregarSolicitud(solicitud) {
     setRespondiendoId(solicitud.id);
     try {
-      await operarInventarioSeguro(["inventarios", "movimientos", "transferencias", "solicitudes"], (actuales) => {
+      await operarInventarioSeguro(["inventarios", "costos", "movimientos", "transferencias", "solicitudes"], (actuales) => {
         const actual = actuales.solicitudes.find((s) => s.id === solicitud.id);
         if (!actual) throw new Error("Esta solicitud ya no existe.");
         if (actual.estado !== "pendiente") throw new Error("Esta solicitud ya fue respondida.");
 
         const prod = productos.find((p) => p.id === solicitud.productoId);
-        const { nuevosInventarios, movSalida, movEntrada, transferencia } = calcularTransferencia({
-          inventariosActuales: actuales.inventarios, variantes, producto: prod, productoId: solicitud.productoId,
+        const { nuevosInventarios, nuevosCostos, movSalida, movEntrada, transferencia } = calcularTransferencia({
+          inventariosActuales: actuales.inventarios, costosActuales: actuales.costos, variantes, producto: prod, productoId: solicitud.productoId,
           cantidad: solicitud.cantidad, origen: solicitud.proveedor, destino: solicitud.solicitante, usuario: nombre,
         });
 
@@ -147,6 +148,7 @@ export default function Transferencias({ productos, variantes, inventarios, tran
 
         return {
           inventarios: nuevosInventarios,
+          costos: nuevosCostos,
           movimientos: [...actuales.movimientos, movSalida, movEntrada],
           transferencias: [...actuales.transferencias, transferencia],
           solicitudes: nuevasSolicitudes,

@@ -56,11 +56,12 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
       // casi al mismo tiempo, calcular esto con datos viejos dejaría el
       // costo promedio mal calculado — por eso se recalcula adentro de
       // la transacción, con el dato real del servidor.
-      const colecciones = pMin != null ? ["inventarios", "compras", "movimientos", "productos"] : ["inventarios", "compras", "movimientos"];
+      const colecciones = pMin != null ? ["inventarios", "costos", "compras", "movimientos", "productos"] : ["inventarios", "costos", "compras", "movimientos"];
       await operarInventarioSeguro(colecciones, (actuales) => {
         const invActual = actuales.inventarios.find((i) => i.id === claveInventario);
         const stockAnterior = invActual ? invActual.stock : (producto?.stock || 0);
-        const costoAnterior = invActual ? invActual.costoUnitario : (producto?.costoUnitario ?? null);
+        const costoActual = actuales.costos.find((c) => c.id === claveInventario);
+        const costoAnterior = costoActual ? costoActual.costoUnitario : (producto?.costoUnitario ?? null);
         const nuevoCosto = costoAnterior != null && stockAnterior > 0
           ? round2((stockAnterior * costoAnterior + cant * costo) / (stockAnterior + cant))
           : costo;
@@ -68,13 +69,18 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
 
         const nuevoInv = {
           id: claveInventario, varianteId: productoId, ubicacion,
-          stock: round2(stockAnterior + cant), costoUnitario: nuevoCosto,
+          stock: round2(stockAnterior + cant),
           stockMinimo: invActual ? invActual.stockMinimo : (producto?.stockMinimo ?? null),
           fechaIncorporacion: invActual ? invActual.fechaIncorporacion : (producto?.fechaIncorporacion || todayStr()),
         };
         const nuevosInventarios = invActual
           ? actuales.inventarios.map((i) => (i.id === claveInventario ? nuevoInv : i))
           : [...actuales.inventarios, nuevoInv];
+
+        const nuevoCostoReg = { id: claveInventario, varianteId: productoId, ubicacion, costoUnitario: nuevoCosto };
+        const nuevosCostos = costoActual
+          ? actuales.costos.map((c) => (c.id === claveInventario ? nuevoCostoReg : c))
+          : [...actuales.costos, nuevoCostoReg];
 
         const compra = {
           id: `C${Date.now()}`,
@@ -89,6 +95,7 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
 
         const resultado = {
           inventarios: nuevosInventarios,
+          costos: nuevosCostos,
           compras: [...actuales.compras, compra],
           movimientos: [...actuales.movimientos, mov],
         };

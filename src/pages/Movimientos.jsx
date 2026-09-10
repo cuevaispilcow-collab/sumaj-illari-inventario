@@ -49,7 +49,6 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
           id: claveInventario, varianteId: productoId, ubicacion,
           stock: round2(stockActual + delta),
           stockMinimo: invActual ? invActual.stockMinimo : (producto?.stockMinimo ?? null),
-          costoUnitario: invActual ? invActual.costoUnitario : (producto?.costoUnitario ?? null),
           fechaIncorporacion: invActual ? invActual.fechaIncorporacion : (producto?.fechaIncorporacion || todayStr()),
         };
         const nuevosInventarios = invActual

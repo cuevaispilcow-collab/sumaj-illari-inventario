@@ -9,6 +9,27 @@ import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js"
 
 const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
 
+// Stock (en "inventarios") y costo unitario (en "costos", protegido —
+// ver la tarea de seguridad del costo unitario) se calculan juntos acá
+// abajo por comodidad (un solo objeto "cambios" con las dos cosas), pero
+// se guardan en colecciones separadas. Esta función divide ese mapa de
+// cambios en las dos escrituras que corresponden, para no repetir el
+// mismo troceado en Producir y en Completar pedido.
+function dividirInventarioYCosto(inventariosActuales, costosActuales, cambios) {
+  const nuevosInventarios = [
+    ...inventariosActuales.filter((i) => !cambios[i.id]),
+    ...Object.values(cambios).map((c) => ({
+      id: c.id, varianteId: c.varianteId, ubicacion: c.ubicacion,
+      stock: c.stock, stockMinimo: c.stockMinimo, fechaIncorporacion: c.fechaIncorporacion,
+    })),
+  ];
+  const nuevosCostos = [
+    ...costosActuales.filter((c) => !cambios[c.id]),
+    ...Object.values(cambios).map((c) => ({ id: c.id, varianteId: c.varianteId, ubicacion: c.ubicacion, costoUnitario: c.costoUnitario })),
+  ];
+  return { nuevosInventarios, nuevosCostos };
+}
+
 export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre, ubicacion, esConsolidado }) {
   const [tab, setTab] = useState("producir"); // "producir" | "recetas" | "pedidos"
 
@@ -229,21 +250,27 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
       // ese instante — así, si alguien más acaba de vender o producir
       // algo de estos mismos insumos, esta producción no se guarda con
       // números desactualizados ni deja el stock en negativo.
-      await operarInventarioSeguro(["inventarios", "movimientos", "producciones"], (actuales) => {
+      await operarInventarioSeguro(["inventarios", "costos", "movimientos", "producciones"], (actuales) => {
         // Se arma el stock/costo real de ESTA ubicación para cada producto
         // involucrado. Si un producto todavía no tiene registro de
         // inventario aquí, se usa lo que ya traía cargado en pantalla como
         // punto de partida (así no se pierde nada de lo que ya existía).
+        // El stock y el costo viven en colecciones separadas (ver arriba),
+        // pero se combinan en un solo objeto acá abajo por comodidad de
+        // cálculo — se vuelven a separar recién al guardar.
         const invPorClave = Object.fromEntries(actuales.inventarios.map((i) => [i.id, i]));
+        const costoPorClave = Object.fromEntries(actuales.costos.map((c) => [c.id, c]));
         const leerInv = (varianteId) => {
-          const inv = invPorClave[`${varianteId}__${ubicacion}`];
-          if (inv) return inv;
+          const clave = `${varianteId}__${ubicacion}`;
+          const inv = invPorClave[clave];
+          const costoReg = costoPorClave[clave];
           const enPantalla = productos.find((p) => p.id === varianteId);
           return {
-            id: `${varianteId}__${ubicacion}`, varianteId, ubicacion,
-            stock: enPantalla?.stock || 0, stockMinimo: enPantalla?.stockMinimo ?? null,
-            costoUnitario: enPantalla?.costoUnitario ?? null,
-            fechaIncorporacion: enPantalla?.fechaIncorporacion || fecha,
+            id: clave, varianteId, ubicacion,
+            stock: inv ? inv.stock : (enPantalla?.stock || 0),
+            stockMinimo: inv ? inv.stockMinimo : (enPantalla?.stockMinimo ?? null),
+            fechaIncorporacion: inv ? inv.fechaIncorporacion : (enPantalla?.fechaIncorporacion || fecha),
+            costoUnitario: costoReg ? costoReg.costoUnitario : (enPantalla?.costoUnitario ?? null),
           };
         };
 
@@ -283,10 +310,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
           const yaModificado = cambios[c.inv.id] || c.inv;
           cambios[c.inv.id] = { ...yaModificado, stock: round2(yaModificado.stock - c.necesario) };
         }
-        const nuevosInventarios = [
-          ...actuales.inventarios.filter((i) => !cambios[i.id]),
-          ...Object.values(cambios),
-        ];
+        const { nuevosInventarios, nuevosCostos } = dividirInventarioYCosto(actuales.inventarios, actuales.costos, cambios);
 
         const nuevosMovimientos = [
           ...actuales.movimientos,
@@ -311,6 +335,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
 
         return {
           inventarios: nuevosInventarios,
+          costos: nuevosCostos,
           movimientos: nuevosMovimientos,
           producciones: [...actuales.producciones, produccion],
         };
@@ -572,17 +597,20 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
     setCompletandoId(pedido.id);
     try {
       let margenFinal = 0;
-      await operarInventarioSeguro(["inventarios", "movimientos", "producciones", "ventas", "pedidos"], (actuales) => {
+      await operarInventarioSeguro(["inventarios", "costos", "movimientos", "producciones", "ventas", "pedidos"], (actuales) => {
         const invPorClave = Object.fromEntries(actuales.inventarios.map((i) => [i.id, i]));
+        const costoPorClave = Object.fromEntries(actuales.costos.map((c) => [c.id, c]));
         const leerInv = (varianteId) => {
-          const inv = invPorClave[`${varianteId}__${ubicacionPedido}`];
-          if (inv) return inv;
+          const clave = `${varianteId}__${ubicacionPedido}`;
+          const inv = invPorClave[clave];
+          const costoReg = costoPorClave[clave];
           const enPantalla = productos.find((p) => p.id === varianteId);
           return {
-            id: `${varianteId}__${ubicacionPedido}`, varianteId, ubicacion: ubicacionPedido,
-            stock: enPantalla?.stock || 0, stockMinimo: enPantalla?.stockMinimo ?? null,
-            costoUnitario: enPantalla?.costoUnitario ?? null,
-            fechaIncorporacion: enPantalla?.fechaIncorporacion || todayStr(),
+            id: clave, varianteId, ubicacion: ubicacionPedido,
+            stock: inv ? inv.stock : (enPantalla?.stock || 0),
+            stockMinimo: inv ? inv.stockMinimo : (enPantalla?.stockMinimo ?? null),
+            fechaIncorporacion: inv ? inv.fechaIncorporacion : (enPantalla?.fechaIncorporacion || todayStr()),
+            costoUnitario: costoReg ? costoReg.costoUnitario : (enPantalla?.costoUnitario ?? null),
           };
         };
 
@@ -622,10 +650,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
           const yaModificado = cambios[c.inv.id] || c.inv;
           cambios[c.inv.id] = { ...yaModificado, stock: round2(yaModificado.stock - c.necesario) };
         }
-        const nuevosInventarios = [
-          ...actuales.inventarios.filter((i) => !cambios[i.id]),
-          ...Object.values(cambios),
-        ];
+        const { nuevosInventarios, nuevosCostos } = dividirInventarioYCosto(actuales.inventarios, actuales.costos, cambios);
 
         const nuevosMovimientos = [
           ...actuales.movimientos,
@@ -670,6 +695,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
 
         return {
           inventarios: nuevosInventarios,
+          costos: nuevosCostos,
           movimientos: nuevosMovimientos,
           producciones: [...actuales.producciones, produccion],
           ventas: [...actuales.ventas, venta],

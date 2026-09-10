@@ -67,6 +67,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   const [pedidos, setPedidos] = useState(null);
   const [transferencias, setTransferencias] = useState(null);
   const [solicitudes, setSolicitudes] = useState(null);
+  const [costos, setCostos] = useState(null);
   const [auditoria, setAuditoria] = useState(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState(vistaInicial(rol));
@@ -111,6 +112,8 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   }
   const [confirmReset, setConfirmReset] = useState(false);
   const [errorCarga, setErrorCarga] = useState("");
+  const [confirmMigrarCostos, setConfirmMigrarCostos] = useState(false);
+  const [migrandoCostos, setMigrandoCostos] = useState(false);
 
   // Escucha en tiempo real: cuando CUALQUIER dispositivo (celular de una
   // vendedora, computadora de la gerente, etc.) guarda un cambio, todos
@@ -190,6 +193,20 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
     }, () => {});
     return () => { unsub1(); unsubModelos(); unsubInventarios(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsubTransferencias(); unsubSolicitudes(); unsubAuditoria(); };
   }, []);
+
+  // El costo unitario vive en su propia colección ("costos"), separada
+  // de "inventarios" — ver la tarea de seguridad del costo unitario.
+  // A PROPÓSITO esta colección nunca se pide si la cuenta no es
+  // gerente: así, una vendedora nunca la recibe en su navegador, ni de
+  // fondo ni de ninguna otra forma — la app simplemente no la pide. No
+  // bloquea el arranque (igual que auditoría/transferencias/solicitudes).
+  useEffect(() => {
+    if (rol !== "gerente") return;
+    const unsub = escucharColeccion("costos", (items) => {
+      setCostos(items);
+    }, () => {});
+    return () => unsub();
+  }, [rol]);
 
   // Red de seguridad: si algo falla en segundo plano (por ejemplo, el guardado),
   // que se vea como aviso en vez de quedarse la app "congelada" en silencio.
@@ -296,16 +313,22 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
     if (!productos || !inventarios) return productos;
     const modelosPorCodigo = Object.fromEntries((modelos || []).map((m) => [m.codigo, m]));
     const inventariosPorClave = Object.fromEntries(inventarios.map((i) => [i.id, i]));
+    // Para cualquier cuenta que no sea gerente, `costos` nunca se pidió
+    // (ver el useEffect de arriba) y queda en null — costosPorClave
+    // queda vacío y el costo siempre da null, sin filtrar nada.
+    const costosPorClave = Object.fromEntries((costos || []).map((c) => [c.id, c]));
 
     const datosEnUbicacion = (p, ubic) => {
       const inv = inventariosPorClave[`${p.id}__${ubic}`];
+      const costoReg = costosPorClave[`${p.id}__${ubic}`];
+      const costoUnitario = costoReg ? costoReg.costoUnitario : (ubic === "sumaj_illari" ? (p.costoUnitario ?? null) : null);
       if (inv) {
-        return { stock: inv.stock || 0, stockMinimo: inv.stockMinimo, costoUnitario: inv.costoUnitario, fechaIncorporacion: inv.fechaIncorporacion, precioMinimo: inv.precioMinimo != null ? inv.precioMinimo : p.precioMinimo };
+        return { stock: inv.stock || 0, stockMinimo: inv.stockMinimo, costoUnitario, fechaIncorporacion: inv.fechaIncorporacion, precioMinimo: inv.precioMinimo != null ? inv.precioMinimo : p.precioMinimo };
       }
       if (ubic === "sumaj_illari") {
-        return { stock: p.stock || 0, stockMinimo: p.stockMinimo, costoUnitario: p.costoUnitario, fechaIncorporacion: p.fechaIncorporacion, precioMinimo: p.precioMinimo };
+        return { stock: p.stock || 0, stockMinimo: p.stockMinimo, costoUnitario, fechaIncorporacion: p.fechaIncorporacion, precioMinimo: p.precioMinimo };
       }
-      return { stock: 0, stockMinimo: null, costoUnitario: null, fechaIncorporacion: null, precioMinimo: p.precioMinimo };
+      return { stock: 0, stockMinimo: null, costoUnitario, fechaIncorporacion: null, precioMinimo: p.precioMinimo };
     };
 
     return productos.map((p) => {
@@ -323,7 +346,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
       }
       return { ...(modelosPorCodigo[p.codigo] || {}), ...p, ...datosInventario };
     });
-  }, [productos, modelos, inventarios, ubicacionVista]);
+  }, [productos, modelos, inventarios, costos, ubicacionVista]);
 
   // Versiones de ventas, movimientos, compras y transferencias filtradas
   // por la ubicación que se está VIENDO — para que, por ejemplo, una
@@ -359,6 +382,40 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   function showToast(type, msg) {
     setToast({ type, msg });
     setTimeout(() => setToast(null), 3000);
+  }
+
+  // ============================================================
+  // MIGRACIÓN ÚNICA (temporal): mueve el costoUnitario que hoy vive
+  // dentro de "inventarios" a su propia colección "costos" — ver la
+  // tarea de seguridad del costo unitario. Es segura de ejecutar más de
+  // una vez (no pisa un costo que ya se migró, y no falla si ya no
+  // queda nada por migrar), pero está pensada para correr UNA sola vez,
+  // desde el botón del menú, después de exportar un respaldo. Se quita
+  // de acá en cuanto la gerente confirme que salió bien.
+  async function migrarCostos() {
+    setMigrandoCostos(true);
+    try {
+      await operarInventarioSeguro(["inventarios", "costos"], (actuales) => {
+        const yaExistentes = new Set(actuales.costos.map((c) => c.id));
+        const costosNuevos = [];
+        for (const inv of actuales.inventarios) {
+          if ("costoUnitario" in inv && !yaExistentes.has(inv.id)) {
+            costosNuevos.push({ id: inv.id, varianteId: inv.varianteId, ubicacion: inv.ubicacion, costoUnitario: inv.costoUnitario ?? null });
+          }
+        }
+        const inventariosLimpios = actuales.inventarios.map((inv) => {
+          const { costoUnitario, ...resto } = inv;
+          return resto;
+        });
+        return { inventarios: inventariosLimpios, costos: [...actuales.costos, ...costosNuevos] };
+      });
+      setConfirmMigrarCostos(false);
+      showToast("success", "Costos migrados a su propia colección. Revisa Productos para confirmar que los costos siguen ahí.");
+    } catch (e) {
+      showToast("error", "No se pudo migrar: " + (e && e.message ? e.message : String(e)));
+    } finally {
+      setMigrandoCostos(false);
+    }
   }
 
   async function resetAll() {
@@ -456,7 +513,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
 
   return (
     <div className="min-h-screen bg-stone-100 lg:flex">
-      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
+      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} onMigrarCostosClick={() => setConfirmMigrarCostos(true)} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
           {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} />}
@@ -494,6 +551,15 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
           body="Esto borra el catálogo de productos, los movimientos, las ventas y las compras guardadas. No se puede deshacer."
           onCancel={() => setConfirmReset(false)}
           onConfirm={resetAll}
+        />
+      )}
+      {confirmMigrarCostos && (
+        <ConfirmModal
+          title="¿Migrar costos ahora?"
+          body="Esto mueve el costo unitario de cada producto desde 'inventarios' a su propia colección 'costos', protegida solo para gerente. ¿Ya exportaste un respaldo a Excel? Si no, cancela y expórtalo primero."
+          confirmLabel={migrandoCostos ? "Migrando..." : "Sí, migrar"}
+          onCancel={() => setConfirmMigrarCostos(false)}
+          onConfirm={migrandoCostos ? () => {} : migrarCostos}
         />
       )}
     </div>

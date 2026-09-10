@@ -41,7 +41,7 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
     const base = existente || {
       id: clave, varianteId: p.id, ubicacion,
       stock: p.stock || 0, stockMinimo: p.stockMinimo ?? null,
-      costoUnitario: p.costoUnitario ?? null, fechaIncorporacion: p.fechaIncorporacion || null,
+      fechaIncorporacion: p.fechaIncorporacion || null,
     };
     const actualizado = { ...base, ...cambios };
     const nuevos = existente
@@ -380,10 +380,16 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
     const claveVieja = `${producto.id}__${ubicacion}`;
     const claveNueva = `${nuevoId}__${ubicacion}`;
     const invExistente = (inventarios || []).find((i) => i.id === claveVieja);
+    // Nota: si este producto ya tenía un costo registrado (en "costos"),
+    // renombrar su código/talla acá NO renombra ese registro — se ve
+    // "sin costo" hasta la próxima compra o transferencia. No es un
+    // problema de seguridad, solo un dato que se recalcula solo; renombrar
+    // el código de un producto es poco frecuente, así que se deja así por
+    // ahora en vez de complicar este cambio.
     const invBase = invExistente || {
       id: claveVieja, varianteId: producto.id, ubicacion,
       stock: producto.stock || 0, stockMinimo: producto.stockMinimo ?? null,
-      costoUnitario: producto.costoUnitario ?? null, fechaIncorporacion: producto.fechaIncorporacion || null,
+      fechaIncorporacion: producto.fechaIncorporacion || null,
     };
     const invActualizado = { ...invBase, id: claveNueva, varianteId: nuevoId, stock: st, stockMinimo: sm };
     const nuevosInventarios = invExistente

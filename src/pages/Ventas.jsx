@@ -58,6 +58,7 @@ export default function Ventas({ productos, movimientos, ventas, onSave, onSaveI
     setError("");
     try {
       await operarInventarioSeguro(["inventarios", "ventas", "movimientos"], (actuales) => {
+        // "costos" se lee (ver más abajo) pero no se escribe acá.
         const invActual = actuales.inventarios.find((i) => i.id === claveInventario);
         // Si todavía no existe un registro de inventario para esta
         // ubicación (ej. primera venta desde que separamos por
@@ -72,19 +73,26 @@ export default function Ventas({ productos, movimientos, ventas, onSave, onSaveI
           id: claveInventario, varianteId: productoId, ubicacion,
           stock: round2(stockBase - cant),
           stockMinimo: invActual ? invActual.stockMinimo : (producto?.stockMinimo ?? null),
-          costoUnitario: invActual ? invActual.costoUnitario : (producto?.costoUnitario ?? null),
           fechaIncorporacion: invActual ? invActual.fechaIncorporacion : (producto?.fechaIncorporacion || todayStr()),
         };
         const nuevosInventarios = invActual
           ? actuales.inventarios.map((i) => (i.id === claveInventario ? nuevoInv : i))
           : [...actuales.inventarios, nuevoInv];
 
+        // El costo unitario vive aparte, en "costos" (protegido — ver la
+        // tarea de seguridad del costo unitario). Se lee solo para
+        // copiarlo dentro de esta venta puntual (para poder calcular el
+        // margen después); la venta no lo cambia, así que no hace falta
+        // reescribir nada en "costos" acá.
+        const costoActual = actuales.costos.find((c) => c.id === claveInventario);
+        const costoParaVenta = costoActual ? costoActual.costoUnitario : (producto?.costoUnitario ?? null);
+
         const venta = {
           id: `V${Date.now()}`,
           fecha, idProducto: producto.codigo, producto: producto.producto, ubicacion,
           cantidad: cant, talla: producto.talla, descripcion: descripcion || producto.descripcion || "",
           precio: prec, efectivo: Number(efectivo) || 0, yape: Number(yape) || 0, tarjeta: Number(tarjeta) || 0, total: totalCalc,
-          costoUnitario: nuevoInv.costoUnitario,
+          costoUnitario: costoParaVenta,
         };
         const mov = {
           id: `M${Date.now()}`, fecha, tipo: "VENTA", productoId, ubicacion,
@@ -97,7 +105,7 @@ export default function Ventas({ productos, movimientos, ventas, onSave, onSaveI
           ventas: [...actuales.ventas, venta],
           movimientos: [...actuales.movimientos, mov],
         };
-      });
+      }, ["costos"]);
 
       showToast("success", "Venta registrada. Stock actualizado.");
       registrarAuditoria({

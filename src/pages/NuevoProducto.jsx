@@ -66,9 +66,11 @@ export default function NuevoProducto({ productos, modelos, onSaveModelos, onSav
     };
     const nuevoInventario = {
       id: `${id}__${ubicacion}`, varianteId: id, ubicacion,
-      stock: si, stockMinimo: sm, costoUnitario: null,
+      stock: si, stockMinimo: sm,
       fechaIncorporacion: todayStr(), // para saber cuánto tiempo lleva en inventario
     };
+    // Sin costo todavía — recién se crea un registro en "costos" cuando
+    // llegue la primera compra o transferencia de este producto.
 
     try {
       setEnviando(true);

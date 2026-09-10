@@ -1,6 +1,6 @@
 import React from "react";
 
-export default function ConfirmModal({ title, body, onCancel, onConfirm }) {
+export default function ConfirmModal({ title, body, confirmLabel = "Sí, reiniciar", onCancel, onConfirm }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
       <div className="bg-white rounded-lg p-5 max-w-sm w-full">
@@ -11,7 +11,7 @@ export default function ConfirmModal({ title, body, onCancel, onConfirm }) {
             Cancelar
           </button>
           <button onClick={onConfirm} className="px-3 py-1.5 rounded text-sm font-medium bg-red-600 text-white hover:bg-red-700 peligro">
-            Sí, reiniciar
+            {confirmLabel}
           </button>
         </div>
       </div>
