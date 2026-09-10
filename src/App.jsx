@@ -6,7 +6,6 @@ import { puedeVer, vistaInicial } from "./roles.js";
 import { UBICACIONES, temaDeSesion } from "./utils/constants.js";
 import { todayStr, round2, filtrarPorUbicacion, filtrarTransferencias, filtrarSolicitudes } from "./utils/format.js";
 import Sidebar from "./components/Sidebar.jsx";
-import ConfirmModal from "./components/ConfirmModal.jsx";
 import Toast from "./components/Toast.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Productos from "./pages/Productos.jsx";
@@ -20,6 +19,8 @@ import Produccion from "./pages/Produccion.jsx";
 import Transferencias from "./pages/Transferencias.jsx";
 import Auditoria from "./pages/Auditoria.jsx";
 import NuevoProducto from "./pages/NuevoProducto.jsx";
+
+const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -110,7 +111,6 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
     setPidiendoNombre(false);
     try { localStorage.setItem("sumajIllariNombreSesion", limpio); } catch (e) {}
   }
-  const [confirmReset, setConfirmReset] = useState(false);
   const [errorCarga, setErrorCarga] = useState("");
 
   // Escucha en tiempo real: cuando CUALQUIER dispositivo (celular de una
@@ -307,27 +307,53 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   // costo unitario se promedia ponderado por cuánto stock aporta cada
   // una — el mismo criterio que ya usan Compras y Transferencias para
   // combinar costos de distinto origen.
+  // Mapas de búsqueda rápida por clave "varianteId__ubicacion" — se
+  // recalculan solo cuando cambian inventarios/costos, no en cada
+  // render. Los usan tanto productosCompletos como exportarExcel (que
+  // necesita el detalle de las 3 sedes, no solo la que se está viendo).
+  const inventariosPorClave = React.useMemo(
+    () => Object.fromEntries((inventarios || []).map((i) => [i.id, i])),
+    [inventarios]
+  );
+  // Para cualquier cuenta que no sea gerente, `costos` nunca se pidió
+  // (ver el useEffect de arriba) y queda en null — costosPorClave queda
+  // vacío y el costo siempre da null, sin filtrar nada.
+  const costosPorClave = React.useMemo(
+    () => Object.fromEntries((costos || []).map((c) => [c.id, c])),
+    [costos]
+  );
+
+  // Cuánto stock/costo/stock mínimo tiene UN producto en UNA sede
+  // puntual. Si un producto todavía no tiene un registro de inventario
+  // para esa sede (ej. porque se creó antes de separar por ubicación),
+  // se usa su stock antiguo como el de "sumaj_illari" — así no se
+  // pierde nada de lo que ya existía.
+  function datosEnUbicacion(p, ubic) {
+    const inv = inventariosPorClave[`${p.id}__${ubic}`];
+    const costoReg = costosPorClave[`${p.id}__${ubic}`];
+    const costoUnitario = costoReg ? costoReg.costoUnitario : (ubic === "sumaj_illari" ? (p.costoUnitario ?? null) : null);
+    if (inv) {
+      return { stock: inv.stock || 0, stockMinimo: inv.stockMinimo, costoUnitario, fechaIncorporacion: inv.fechaIncorporacion, precioMinimo: inv.precioMinimo != null ? inv.precioMinimo : p.precioMinimo };
+    }
+    if (ubic === "sumaj_illari") {
+      return { stock: p.stock || 0, stockMinimo: p.stockMinimo, costoUnitario, fechaIncorporacion: p.fechaIncorporacion, precioMinimo: p.precioMinimo };
+    }
+    return { stock: 0, stockMinimo: null, costoUnitario, fechaIncorporacion: null, precioMinimo: p.precioMinimo };
+  }
+
+  // Lo que ve cada pantalla: cada talla (producto) "completa" con los
+  // datos de su modelo (nombre, categoría, tipo...) y con el stock/costo
+  // de la ubicación que se está VIENDO ahora (ubicacionVista) — no un
+  // solo stock global.
+  //
+  // En modo consolidado ("todas", solo gerente) no hay una sola
+  // ubicación: se SUMA el stock (y el stock mínimo) de las 3 sedes, y el
+  // costo unitario se promedia ponderado por cuánto stock aporta cada
+  // una — el mismo criterio que ya usan Compras y Transferencias para
+  // combinar costos de distinto origen.
   const productosCompletos = React.useMemo(() => {
     if (!productos || !inventarios) return productos;
     const modelosPorCodigo = Object.fromEntries((modelos || []).map((m) => [m.codigo, m]));
-    const inventariosPorClave = Object.fromEntries(inventarios.map((i) => [i.id, i]));
-    // Para cualquier cuenta que no sea gerente, `costos` nunca se pidió
-    // (ver el useEffect de arriba) y queda en null — costosPorClave
-    // queda vacío y el costo siempre da null, sin filtrar nada.
-    const costosPorClave = Object.fromEntries((costos || []).map((c) => [c.id, c]));
-
-    const datosEnUbicacion = (p, ubic) => {
-      const inv = inventariosPorClave[`${p.id}__${ubic}`];
-      const costoReg = costosPorClave[`${p.id}__${ubic}`];
-      const costoUnitario = costoReg ? costoReg.costoUnitario : (ubic === "sumaj_illari" ? (p.costoUnitario ?? null) : null);
-      if (inv) {
-        return { stock: inv.stock || 0, stockMinimo: inv.stockMinimo, costoUnitario, fechaIncorporacion: inv.fechaIncorporacion, precioMinimo: inv.precioMinimo != null ? inv.precioMinimo : p.precioMinimo };
-      }
-      if (ubic === "sumaj_illari") {
-        return { stock: p.stock || 0, stockMinimo: p.stockMinimo, costoUnitario, fechaIncorporacion: p.fechaIncorporacion, precioMinimo: p.precioMinimo };
-      }
-      return { stock: 0, stockMinimo: null, costoUnitario, fechaIncorporacion: null, precioMinimo: p.precioMinimo };
-    };
 
     return productos.map((p) => {
       let datosInventario;
@@ -344,7 +370,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
       }
       return { ...(modelosPorCodigo[p.codigo] || {}), ...p, ...datosInventario };
     });
-  }, [productos, modelos, inventarios, costos, ubicacionVista]);
+  }, [productos, modelos, inventariosPorClave, costosPorClave, ubicacionVista]);
 
   // Versiones de ventas, movimientos, compras y transferencias filtradas
   // por la ubicación que se está VIENDO — para que, por ejemplo, una
@@ -382,32 +408,39 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
     setTimeout(() => setToast(null), 3000);
   }
 
-  async function resetAll() {
-    await persist([], [], [], [], [], []);
-    await persistModelos([]);
-    setConfirmReset(false);
-    showToast("success", "Todo se reinició. Catálogo, movimientos, ventas, compras, producción y pedidos en cero.");
-  }
-
   function exportarExcel() {
-    if (productos.length === 0 && ventas.length === 0 && movimientos.length === 0 && compras.length === 0 && producciones.length === 0 && (pedidos || []).length === 0) {
+    if (
+      productos.length === 0 && ventas.length === 0 && movimientos.length === 0 && compras.length === 0 &&
+      producciones.length === 0 && (pedidos || []).length === 0 && (transferencias || []).length === 0 && (solicitudes || []).length === 0
+    ) {
       showToast("error", "No hay nada que exportar todavía.");
       return;
     }
     const wb = XLSX.utils.book_new();
+    const sede = (id) => NOMBRE_UBICACION[id] || NOMBRE_UBICACION.sumaj_illari;
 
-    const wsProductos = XLSX.utils.json_to_sheet(
-      productosCompletos.map((p) => ({
-        ID_Producto: p.id, Codigo: p.codigo, Tipo: p.tipo, Categoria: p.categoria,
-        Producto: p.producto, Descripcion: p.descripcion, Talla: p.talla, Unidad: p.unidad,
-        Stock_Actual: p.stock, Stock_Minimo: p.stockMinimo ?? "", Costo_Unitario_Promedio: p.costoUnitario ?? "",
-      }))
-    );
-    XLSX.utils.book_append_sheet(wb, wsProductos, "Productos");
+    // Exporta SIEMPRE las 3 sedes, cada fila identificada con su Sede —
+    // sin importar qué estés mirando en el menú al momento de exportar.
+    // Así se puede analizar cada empresa por separado (filtrando por
+    // Sede en el propio Excel) y también el total (sumando todo).
+    const modelosPorCodigo = Object.fromEntries((modelos || []).map((m) => [m.codigo, m]));
+    const filasProductos = [];
+    for (const p of productos) {
+      const base = { ...(modelosPorCodigo[p.codigo] || {}), ...p };
+      for (const u of UBICACIONES) {
+        const d = datosEnUbicacion(p, u.id);
+        filasProductos.push({
+          Sede: u.nombre, ID_Producto: base.id, Codigo: base.codigo, Tipo: base.tipo, Categoria: base.categoria,
+          Producto: base.producto, Descripcion: base.descripcion, Talla: base.talla, Unidad: base.unidad,
+          Stock_Actual: d.stock, Stock_Minimo: d.stockMinimo ?? "", Costo_Unitario_Promedio: d.costoUnitario ?? "",
+        });
+      }
+    }
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filasProductos), "Productos");
 
     const wsVentas = XLSX.utils.json_to_sheet(
       ventas.map((v) => ({
-        FECHA: v.fecha, "ID-PRODUCTO": v.idProducto, PRODUCTO: v.producto, CANTIDAD: v.cantidad,
+        Sede: sede(v.ubicacion), FECHA: v.fecha, "ID-PRODUCTO": v.idProducto, PRODUCTO: v.producto, CANTIDAD: v.cantidad,
         TALLA: v.talla, DESCRIPCION: v.descripcion, PRECIO: v.precio, EFECTIVO: v.efectivo,
         YAPE: v.yape, TARJETA: v.tarjeta || 0, TOTAL: v.total,
       }))
@@ -416,14 +449,14 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
 
     const wsMov = XLSX.utils.json_to_sheet(
       movimientos.map((m) => ({
-        Fecha: m.fecha, Tipo: m.tipo, Producto: m.productoNombre, Cantidad: m.cantidad, Motivo: m.motivo || "",
+        Sede: sede(m.ubicacion), Fecha: m.fecha, Tipo: m.tipo, Producto: m.productoNombre, Cantidad: m.cantidad, Motivo: m.motivo || "",
       }))
     );
     XLSX.utils.book_append_sheet(wb, wsMov, "Movimientos");
 
     const wsCompras = XLSX.utils.json_to_sheet(
       compras.map((c) => ({
-        Fecha: c.fecha, Codigo: c.codigo, Producto: c.producto, Talla: c.talla, Tipo: c.tipo,
+        Sede: sede(c.ubicacion), Fecha: c.fecha, Codigo: c.codigo, Producto: c.producto, Talla: c.talla, Tipo: c.tipo,
         Cantidad: c.cantidad, Costo_Unitario: c.costoUnitario, Proveedor: c.proveedor, Total: c.total,
       }))
     );
@@ -431,7 +464,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
 
     const wsProd = XLSX.utils.json_to_sheet(
       producciones.map((pr) => ({
-        Fecha: pr.fecha, Codigo: pr.codigo, Producto: pr.producto, Talla: pr.talla,
+        Sede: sede(pr.ubicacion), Fecha: pr.fecha, Codigo: pr.codigo, Producto: pr.producto, Talla: pr.talla,
         Cantidad_Producida: pr.cantidad, Costo_Unitario_Calculado: pr.costoUnitario, Costo_Total: pr.total,
       }))
     );
@@ -439,15 +472,36 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
 
     const wsPedidos = XLSX.utils.json_to_sheet(
       (pedidos || []).map((pe) => ({
-        Fecha_tomado: pe.fecha, Cliente: pe.cliente, Codigo: pe.codigo, Producto: pe.producto,
+        Sede: sede(pe.ubicacion), Fecha_tomado: pe.fecha, Cliente: pe.cliente, Codigo: pe.codigo, Producto: pe.producto,
         Cantidad: pe.cantidad, Etapa: pe.etapa, Fecha_entrega: pe.fechaEntrega,
         Precio_cotizado: pe.precioCotizado, Costo_produccion: pe.costoProduccion, Margen: pe.margen,
       }))
     );
     XLSX.utils.book_append_sheet(wb, wsPedidos, "Pedidos");
 
+    // Transferencias y solicitudes son justamente el movimiento ENTRE
+    // las 2 empresas — no tienen una sola "Sede", así que van con
+    // Origen/Destino (o Solicitante/Proveedor) en vez de una columna
+    // Sede, para que quede claro el sentido del movimiento.
+    const wsTransferencias = XLSX.utils.json_to_sheet(
+      (transferencias || []).map((t) => ({
+        Fecha: t.fecha, Codigo: t.codigo, Producto: t.productoNombre, Cantidad: t.cantidad,
+        Origen: sede(t.origen), Destino: sede(t.destino), Usuario: t.usuario,
+      }))
+    );
+    XLSX.utils.book_append_sheet(wb, wsTransferencias, "Transferencias");
+
+    const wsSolicitudes = XLSX.utils.json_to_sheet(
+      (solicitudes || []).map((s) => ({
+        Fecha: s.fecha, Codigo: s.codigo, Producto: s.productoNombre, Cantidad: s.cantidad,
+        Solicitante: sede(s.solicitante), Proveedor: sede(s.proveedor), Estado: s.estado,
+        Usuario_solicito: s.usuarioSolicito, Usuario_respondio: s.usuarioRespondio || "", Fecha_respuesta: s.fechaRespuesta || "",
+      }))
+    );
+    XLSX.utils.book_append_sheet(wb, wsSolicitudes, "Solicitudes");
+
     const fechaArchivo = todayStr();
-    XLSX.writeFile(wb, `SUMAJ_ILLARI_Respaldo_${fechaArchivo}.xlsx`);
+    XLSX.writeFile(wb, `Respaldo_SumajIllari_JL_${fechaArchivo}.xlsx`);
     showToast("success", "Excel descargado. Revisa tu carpeta de Descargas.");
   }
 
@@ -477,7 +531,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
 
   return (
     <div className="min-h-screen bg-stone-100 lg:flex">
-      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
+      <Sidebar view={vistaSegura} setView={setView} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
           {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} />}
@@ -509,14 +563,6 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
         </div>
       </main>
       {toast && <Toast type={toast.type} msg={toast.msg} />}
-      {confirmReset && (
-        <ConfirmModal
-          title="¿Reiniciar todo?"
-          body="Esto borra el catálogo de productos, los movimientos, las ventas y las compras guardadas. No se puede deshacer."
-          onCancel={() => setConfirmReset(false)}
-          onConfirm={resetAll}
-        />
-      )}
     </div>
   );
 }
