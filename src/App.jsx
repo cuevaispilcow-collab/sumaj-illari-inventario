@@ -112,8 +112,6 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   }
   const [confirmReset, setConfirmReset] = useState(false);
   const [errorCarga, setErrorCarga] = useState("");
-  const [confirmMigrarCostos, setConfirmMigrarCostos] = useState(false);
-  const [migrandoCostos, setMigrandoCostos] = useState(false);
 
   // Escucha en tiempo real: cuando CUALQUIER dispositivo (celular de una
   // vendedora, computadora de la gerente, etc.) guarda un cambio, todos
@@ -384,40 +382,6 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
     setTimeout(() => setToast(null), 3000);
   }
 
-  // ============================================================
-  // MIGRACIÓN ÚNICA (temporal): mueve el costoUnitario que hoy vive
-  // dentro de "inventarios" a su propia colección "costos" — ver la
-  // tarea de seguridad del costo unitario. Es segura de ejecutar más de
-  // una vez (no pisa un costo que ya se migró, y no falla si ya no
-  // queda nada por migrar), pero está pensada para correr UNA sola vez,
-  // desde el botón del menú, después de exportar un respaldo. Se quita
-  // de acá en cuanto la gerente confirme que salió bien.
-  async function migrarCostos() {
-    setMigrandoCostos(true);
-    try {
-      await operarInventarioSeguro(["inventarios", "costos"], (actuales) => {
-        const yaExistentes = new Set(actuales.costos.map((c) => c.id));
-        const costosNuevos = [];
-        for (const inv of actuales.inventarios) {
-          if ("costoUnitario" in inv && !yaExistentes.has(inv.id)) {
-            costosNuevos.push({ id: inv.id, varianteId: inv.varianteId, ubicacion: inv.ubicacion, costoUnitario: inv.costoUnitario ?? null });
-          }
-        }
-        const inventariosLimpios = actuales.inventarios.map((inv) => {
-          const { costoUnitario, ...resto } = inv;
-          return resto;
-        });
-        return { inventarios: inventariosLimpios, costos: [...actuales.costos, ...costosNuevos] };
-      });
-      setConfirmMigrarCostos(false);
-      showToast("success", "Costos migrados a su propia colección. Revisa Productos para confirmar que los costos siguen ahí.");
-    } catch (e) {
-      showToast("error", "No se pudo migrar: " + (e && e.message ? e.message : String(e)));
-    } finally {
-      setMigrandoCostos(false);
-    }
-  }
-
   async function resetAll() {
     await persist([], [], [], [], [], []);
     await persistModelos([]);
@@ -513,7 +477,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
 
   return (
     <div className="min-h-screen bg-stone-100 lg:flex">
-      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} onMigrarCostosClick={() => setConfirmMigrarCostos(true)} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
+      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
           {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} />}
@@ -551,15 +515,6 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
           body="Esto borra el catálogo de productos, los movimientos, las ventas y las compras guardadas. No se puede deshacer."
           onCancel={() => setConfirmReset(false)}
           onConfirm={resetAll}
-        />
-      )}
-      {confirmMigrarCostos && (
-        <ConfirmModal
-          title="¿Migrar costos ahora?"
-          body="Esto mueve el costo unitario de cada producto desde 'inventarios' a su propia colección 'costos', protegida solo para gerente. ¿Ya exportaste un respaldo a Excel? Si no, cancela y expórtalo primero."
-          confirmLabel={migrandoCostos ? "Migrando..." : "Sí, migrar"}
-          onCancel={() => setConfirmMigrarCostos(false)}
-          onConfirm={migrandoCostos ? () => {} : migrarCostos}
         />
       )}
     </div>

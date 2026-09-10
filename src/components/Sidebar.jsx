@@ -1,12 +1,12 @@
 import React, { useState } from "react";
 import {
-  Package, TrendingUp, ArrowLeftRight, ArrowRightLeft, PackagePlus, ReceiptText, RotateCcw, Download, LayoutDashboard, Menu, X, LogOut, ShoppingCart, Percent, Factory, ClipboardList, LineChart as LineChartIcon, ShieldCheck,
+  Package, TrendingUp, ArrowLeftRight, ArrowRightLeft, PackagePlus, ReceiptText, RotateCcw, Download, LayoutDashboard, Menu, X, LogOut, ShoppingCart, Percent, Factory, ClipboardList, LineChart as LineChartIcon,
 } from "lucide-react";
 import Logo from "../Logo.jsx";
 import { puedeVer } from "../roles.js";
 import { temaDeSesion, UBICACIONES } from "../utils/constants.js";
 
-export default function Sidebar({ view, setView, onResetClick, onExportClick, onMigrarCostosClick, rol, ubicacion, ubicacionVista, onChangeUbicacionVista, cerrarSesion, nombreSesion, onCambiarNombre, solicitudesPendientes }) {
+export default function Sidebar({ view, setView, onResetClick, onExportClick, rol, ubicacion, ubicacionVista, onChangeUbicacionVista, cerrarSesion, nombreSesion, onCambiarNombre, solicitudesPendientes }) {
   const [abierto, setAbierto] = useState(false);
   const tema = temaDeSesion(ubicacionVista);
   const tabsTodas = [
@@ -102,15 +102,6 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, on
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-stone-300 hover:bg-stone-800 hover:text-white transition"
           >
             <Download size={17} className="shrink-0" /> Exportar Excel
-          </button>
-        )}
-        {rol === "gerente" && (
-          <button
-            onClick={onMigrarCostosClick}
-            title="Temporal — mueve el costo unitario a su propia colección protegida. Se saca del menú apenas se confirme que salió bien."
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-stone-300 hover:bg-stone-800 hover:text-white transition"
-          >
-            <ShieldCheck size={17} className="shrink-0" /> Migrar costos (una vez)
           </button>
         )}
         {rol === "gerente" && (
