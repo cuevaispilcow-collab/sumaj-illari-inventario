@@ -4,7 +4,7 @@ import AuthGate from "./AuthGate.jsx";
 import { escucharColeccion, guardarColeccion, operarInventarioSeguro } from "./firestoreSync.js";
 import { puedeVer, vistaInicial } from "./roles.js";
 import { UBICACIONES } from "./utils/constants.js";
-import { todayStr } from "./utils/format.js";
+import { todayStr, filtrarPorUbicacion } from "./utils/format.js";
 import Sidebar from "./components/Sidebar.jsx";
 import ConfirmModal from "./components/ConfirmModal.jsx";
 import Toast from "./components/Toast.jsx";
@@ -259,6 +259,19 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
     });
   }, [productos, modelos, inventarios, ubicacion]);
 
+  // Versiones de ventas, movimientos y compras filtradas por la ubicación
+  // de quien está usando la app — para que, por ejemplo, una cuenta de
+  // Tienda X no vea ventas hechas en Sumaj Illari. OJO: estas versiones
+  // filtradas son SOLO para mostrar en pantalla. Nunca se le pasan a una
+  // pantalla que luego las vuelva a guardar completas, porque eso
+  // borraría los registros de las otras ubicaciones al guardar. Por eso
+  // Producción sigue recibiendo las colecciones completas — ahí el
+  // filtrado para mostrar se hace adentro, con cuidado, porque esas
+  // pantallas sí guardan.
+  const ventasUbicacion = React.useMemo(() => filtrarPorUbicacion(ventas, ubicacion), [ventas, ubicacion]);
+  const movimientosUbicacion = React.useMemo(() => filtrarPorUbicacion(movimientos, ubicacion), [movimientos, ubicacion]);
+  const comprasUbicacion = React.useMemo(() => filtrarPorUbicacion(compras, ubicacion), [compras, ubicacion]);
+
   function showToast(type, msg) {
     setToast({ type, msg });
     setTimeout(() => setToast(null), 3000);
@@ -362,21 +375,21 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
       <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
-          {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientos} ventas={ventas} setView={setView} />}
+          {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} />}
           {vistaSegura === "productos" && (
             <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} inventarios={inventarios} onSaveInventarios={persistInventarios} ubicacion={ubicacion} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} nombre={nombreSesion} />
           )}
           {vistaSegura === "ventas" && (
-            <Ventas productos={productosCompletos} movimientos={movimientos} ventas={ventas} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
+            <Ventas productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
           )}
-          {vistaSegura === "demanda" && <Demanda ventas={ventas} productos={productosCompletos} />}
-          {vistaSegura === "analisis" && <Analisis productos={productosCompletos} movimientos={movimientos} ventas={ventas} />}
-          {vistaSegura === "margenes" && <Margenes productos={productosCompletos} ventas={ventas} />}
+          {vistaSegura === "demanda" && <Demanda ventas={ventasUbicacion} productos={productosCompletos} />}
+          {vistaSegura === "analisis" && <Analisis productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} />}
+          {vistaSegura === "margenes" && <Margenes productos={productosCompletos} ventas={ventasUbicacion} />}
           {vistaSegura === "movimientos" && (
-            <Movimientos productos={productosCompletos} movimientos={movimientos} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
+            <Movimientos productos={productosCompletos} movimientos={movimientosUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
           )}
           {vistaSegura === "compras" && (
-            <Compras productos={productosCompletos} movimientos={movimientos} compras={compras} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
+            <Compras productos={productosCompletos} movimientos={movimientosUbicacion} compras={comprasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacion} />
           )}
           {vistaSegura === "auditoria" && <Auditoria auditoria={auditoria} />}
           {vistaSegura === "produccion" && (

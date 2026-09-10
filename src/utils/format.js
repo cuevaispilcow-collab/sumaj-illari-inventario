@@ -22,3 +22,14 @@ export function formatFecha(iso) {
   return `${d} ${meses[m - 1]} ${y}`;
 }
 
+
+// Filtra una lista (ventas, movimientos, compras, producciones, pedidos...)
+// para dejar solo lo que corresponde a una ubicación. Los registros
+// antiguos, de antes de separar por ubicación, no tienen el campo
+// "ubicacion" — esos se tratan como "sumaj_illari" (no se reasignan a
+// ninguna otra ubicación). Esta regla vive en un solo lugar para que
+// todas las pantallas filtren exactamente igual.
+export function filtrarPorUbicacion(lista, ubicacion) {
+  return (lista || []).filter((item) => (item.ubicacion || "sumaj_illari") === ubicacion);
+}
+

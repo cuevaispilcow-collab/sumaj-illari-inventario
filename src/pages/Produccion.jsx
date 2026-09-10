@@ -2,16 +2,24 @@ import React, { useState, useMemo } from "react";
 import {
   Plus, XCircle, Trash2, ClipboardList, CheckCircle2, AlertTriangle,
 } from "lucide-react";
-import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
+import { todayStr, round2, formatSoles, formatFecha, filtrarPorUbicacion } from "../utils/format.js";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre }) {
+export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre, ubicacion }) {
   const [tab, setTab] = useState("producir"); // "producir" | "recetas" | "pedidos"
 
   const terminados = productos.filter((p) => p.tipo === "Terminado" || p.tipo === "En proceso");
   const materiasPrimas = productos.filter((p) => p.tipo === "Materia prima");
   const insumosDisponibles = productos.filter((p) => p.tipo === "Materia prima" || p.tipo === "En proceso");
+
+  // "producciones" acá solo se usa para MOSTRAR (el historial de la
+  // pestaña "Producir") — nunca se vuelve a guardar completo desde este
+  // componente, así que filtrarlo por ubicación es seguro. "pedidos", en
+  // cambio, se usa también para guardar (tomar pedido, marcar avance), así
+  // que ese se filtra más abajo, adentro de PedidosPanel, solo para lo que
+  // se muestra en pantalla — nunca para lo que se guarda.
+  const produccionesUbicacion = filtrarPorUbicacion(producciones, ubicacion);
 
   return (
     <div className="space-y-4">
@@ -39,9 +47,9 @@ export default function Produccion({ productos, variantes, modelos, onSaveModelo
       {tab === "recetas" ? (
         <RecetasEditor productos={productos} variantes={variantes} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} />
       ) : tab === "pedidos" ? (
-        <PedidosPanel productos={productos} variantes={variantes} modelos={modelos} onSaveModelos={onSaveModelos} movimientos={movimientos} ventas={ventas} producciones={producciones} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} nombre={nombre} ubicacion={ubicacion} />
+        <PedidosPanel productos={productos} variantes={variantes} modelos={modelos} onSaveModelos={onSaveModelos} movimientos={movimientos} ventas={ventas} producciones={produccionesUbicacion} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} nombre={nombre} ubicacion={ubicacion} />
       ) : (
-        <ProducirForm productos={productos} movimientos={movimientos} producciones={producciones} terminados={terminados} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} ubicacion={ubicacion} />
+        <ProducirForm productos={productos} movimientos={movimientos} producciones={produccionesUbicacion} terminados={terminados} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} ubicacion={ubicacion} />
       )}
     </div>
   );
@@ -490,7 +498,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
         await onSaveModelos(nuevosModelos);
       }
       const nuevoPedido = {
-        id: `PED${Date.now()}`, fecha: todayStr(), cliente: cliente.trim(),
+        id: `PED${Date.now()}`, fecha: todayStr(), cliente: cliente.trim(), ubicacion,
         productoId, codigo: producto.codigo, producto: producto.producto, talla: producto.talla,
         cantidad: cant, precioCotizado: precio, fechaEntrega, etapa: "Tomado",
         operaciones: operacionesAUsar, operacionesCompletadas: [],
@@ -663,13 +671,19 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
     }
   }
 
+  // Estas listas son solo para MOSTRAR en pantalla — se filtran por
+  // ubicación acá adentro. El arreglo "pedidos" que llega por props se usa
+  // SIN filtrar en handleCrear y toggleOperacion (más abajo), porque esos
+  // sí guardan la colección completa: si se guardara ya filtrada, se
+  // borrarían los pedidos de las otras ubicaciones.
+  const pedidosUbicacion = useMemo(() => filtrarPorUbicacion(pedidos, ubicacion), [pedidos, ubicacion]);
   const pendientes = useMemo(
-    () => pedidos.filter((p) => p.etapa !== "Completado").sort((a, b) => (a.fechaEntrega < b.fechaEntrega ? -1 : 1)),
-    [pedidos]
+    () => pedidosUbicacion.filter((p) => p.etapa !== "Completado").sort((a, b) => (a.fechaEntrega < b.fechaEntrega ? -1 : 1)),
+    [pedidosUbicacion]
   );
   const completados = useMemo(
-    () => pedidos.filter((p) => p.etapa === "Completado").sort((a, b) => (a.completadoEn < b.completadoEn ? 1 : -1)),
-    [pedidos]
+    () => pedidosUbicacion.filter((p) => p.etapa === "Completado").sort((a, b) => (a.completadoEn < b.completadoEn ? 1 : -1)),
+    [pedidosUbicacion]
   );
 
   function diasParaEntrega(fechaEntrega) {
