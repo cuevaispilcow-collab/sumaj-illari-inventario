@@ -3,11 +3,14 @@ import {
   AlertTriangle, Plus, XCircle, ReceiptText,
 } from "lucide-react";
 import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
+import { UBICACIONES } from "../utils/constants.js";
 import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Ventas({ productos, movimientos, ventas, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion }) {
+const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
+
+export default function Ventas({ productos, movimientos, ventas, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado }) {
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
   const [productoId, setProductoId] = useState("");
@@ -98,7 +101,7 @@ export default function Ventas({ productos, movimientos, ventas, onSave, onSaveI
 
       showToast("success", "Venta registrada. Stock actualizado.");
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "VENTA",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "VENTA", ubicacion,
         detalle: `Vendió ${cant} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""} — S/ ${totalCalc.toFixed(2)}`,
       }).catch(() => {});
       reset();
@@ -131,7 +134,12 @@ export default function Ventas({ productos, movimientos, ventas, onSave, onSaveI
         </button>
       </div>
 
-      {showForm && (
+      {showForm && esConsolidado && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar una venta — en modo consolidado no hay a dónde atribuirla.
+        </div>
+      )}
+      {showForm && !esConsolidado && (
         <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-stone-200 shadow-sm p-4 space-y-3">
           {productos.length === 0 ? (
             <p className="text-sm text-stone-500">
@@ -232,6 +240,7 @@ export default function Ventas({ productos, movimientos, ventas, onSave, onSaveI
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-stone-500 border-b border-stone-100">
+                        {esConsolidado && <th className="text-left px-3 py-1.5 font-medium">Sede</th>}
                         <th className="text-left px-3 py-1.5 font-medium">ID producto</th>
                         <th className="text-left px-3 py-1.5 font-medium">Producto</th>
                         <th className="text-left px-3 py-1.5 font-medium">Talla</th>
@@ -247,6 +256,7 @@ export default function Ventas({ productos, movimientos, ventas, onSave, onSaveI
                     <tbody>
                       {items.map((v) => (
                         <tr key={v.id} className="border-b border-stone-50 last:border-0 hover:bg-stone-50/60 transition-colors">
+                          {esConsolidado && <td className="px-3 py-1.5 text-stone-500">{NOMBRE_UBICACION[v.ubicacion] || NOMBRE_UBICACION.sumaj_illari}</td>}
                           <td className="px-3 py-1.5 text-stone-500 font-mono text-xs">{v.idProducto}</td>
                           <td className="px-3 py-1.5 text-stone-800">{v.producto}</td>
                           <td className="px-3 py-1.5 text-stone-500">{v.talla}</td>

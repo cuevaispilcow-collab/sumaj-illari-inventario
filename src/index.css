@@ -12,3 +12,39 @@
 .chain-shake {
   animation: chainShake 0.4s ease;
 }
+
+/* ============================================================
+   Identidad visual por empresa (SUMAJ ILLARI vs JL).
+   Estas variables valen, por defecto, EXACTAMENTE los mismos rojos
+   que Tailwind ya usaba (red-500/600/700) — así Sumaj Illari se ve
+   idéntico a como estaba. Cuando App.jsx marca la sesión como JL
+   (atributo data-tema="jl" en <html>), las mismas variables cambian
+   a negro/amarillo, y como los botones/campos/pestañas de siempre ya
+   usan estas reglas, se repintan solos: no hace falta tocar Ventas,
+   Compras, Movimientos ni ninguna otra pantalla.
+
+   La clase ".peligro" marca a propósito los pocos botones/campos que
+   representan una acción destructiva o un error real (borrar un
+   producto, reiniciar todo, un campo obligatorio sin llenar). Esos
+   quedan EXCLUIDOS de este repintado: el rojo de peligro es una señal
+   universal que no debe depender de la marca de la sede. */
+:root {
+  --marca-500: #ef4444; /* rojo-500 (anillo de foco de los campos) */
+  --marca-600: #dc2626; /* rojo-600 (fondo de botones y estados activos) */
+  --marca-700: #b91c1c; /* rojo-700 (hover de esos botones) */
+  --marca-texto: #ffffff; /* texto sobre un fondo de color de marca */
+}
+
+[data-tema="jl"] {
+  --marca-500: #f5c518;
+  --marca-600: #f5c518;
+  --marca-700: #d9ad0a;
+  --marca-texto: #1c1917;
+}
+
+[data-tema="jl"] .bg-red-600:not(.peligro) { background-color: var(--marca-600); }
+[data-tema="jl"] .hover\:bg-red-700:not(.peligro):hover { background-color: var(--marca-700); }
+[data-tema="jl"] .border-red-600:not(.peligro) { border-color: var(--marca-600); }
+[data-tema="jl"] .border-red-600.text-red-600:not(.peligro) { color: var(--marca-600); }
+[data-tema="jl"] .focus\:ring-red-500:focus { --tw-ring-color: var(--marca-500); }
+[data-tema="jl"] .bg-red-600.text-white:not(.peligro) { color: var(--marca-texto); }

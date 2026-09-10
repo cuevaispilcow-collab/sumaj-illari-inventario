@@ -8,7 +8,7 @@ import EmptyState from "../components/EmptyState.jsx";
 
 import { registrarAuditoria } from "../firestoreSync.js";
 
-export default function Productos({ productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, movimientos, ventas, onSave, showToast, setView, rol, ubicacion, nombre: nombreUsuario }) {
+export default function Productos({ productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, movimientos, ventas, onSave, showToast, setView, rol, ubicacion, esConsolidado, nombre: nombreUsuario }) {
   const [q, setQ] = useState("");
   const [tipo, setTipo] = useState("todos");
   const [editingId, setEditingId] = useState(null);
@@ -178,6 +178,10 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
                           <CheckCircle2 size={16} />
                         </button>
                       </div>
+                    ) : esConsolidado ? (
+                      <span className="text-stone-600">
+                        {p.stockMinimo != null ? p.stockMinimo : <span className="text-stone-300">sin definir</span>}
+                      </span>
                     ) : (
                       <button onClick={() => startEdit(p)} className="text-stone-600 hover:text-red-600 inline-flex items-center gap-1">
                         {p.stockMinimo != null ? p.stockMinimo : <span className="text-stone-300">sin definir</span>}
@@ -195,7 +199,12 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
                           <span className={lenta ? "text-amber-600 font-semibold" : "text-stone-600"} title={lenta ? `Lleva más de ${umbral} días en inventario` : undefined}>
                             {dias == null ? <span className="text-stone-300">—</span> : dias}
                           </span>
-                          {rol === "gerente" && (
+                          {rol === "gerente" && esConsolidado && (
+                            <span className="text-[10px] text-stone-400">
+                              alerta: {umbral != null ? `${umbral}d` : "sin definir"}
+                            </span>
+                          )}
+                          {rol === "gerente" && !esConsolidado && (
                             editingRotId === p.id ? (
                               <div className="flex items-center gap-1">
                                 <input
@@ -272,6 +281,7 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
           inventarios={inventarios}
           onSaveInventarios={onSaveInventarios}
           ubicacion={ubicacion}
+          esConsolidado={esConsolidado}
         />
       )}
     </div>
@@ -279,7 +289,7 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
 }
 
 
-function EditarProductoModal({ producto, productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, ubicacion, movimientos, ventas, onSave, showToast, onClose, nombreUsuario, rol }) {
+function EditarProductoModal({ producto, productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, ubicacion, esConsolidado, movimientos, ventas, onSave, showToast, onClose, nombreUsuario, rol }) {
   const [codigo, setCodigo] = useState(producto.codigo);
   const [categoria, setCategoria] = useState(producto.categoria);
   const [nombre, setNombre] = useState(producto.producto);
@@ -310,7 +320,7 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
       await onSave(nuevasVariantes, movimientos, ventas);
       showToast("success", `Producto "${producto.producto}" eliminado.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombreUsuario || "?", rol, accion: "PRODUCTO_ELIMINADO",
+        fecha: new Date().toISOString(), usuario: nombreUsuario || "?", rol, accion: "PRODUCTO_ELIMINADO", ubicacion,
         detalle: `Eliminó ${producto.producto}${producto.talla !== "Única" ? " - " + producto.talla : ""}`,
       }).catch(() => {});
       onClose();
@@ -321,6 +331,10 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
   }
 
   async function handleGuardar() {
+    if (esConsolidado) {
+      setError("Estás en modo consolidado — elige una sede específica arriba para poder guardar cambios de stock.");
+      return;
+    }
     if (!codigo.trim() || !categoria.trim() || !nombre.trim()) {
       setError("Código, categoría y nombre son obligatorios.");
       return;
@@ -411,7 +425,7 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
       if (st !== producto.stock) camposCambiados.push("stock");
       if (String(sm) !== String(producto.stockMinimo)) camposCambiados.push("stock mínimo");
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombreUsuario || "?", rol, accion: "PRODUCTO_EDITADO",
+        fecha: new Date().toISOString(), usuario: nombreUsuario || "?", rol, accion: "PRODUCTO_EDITADO", ubicacion,
         detalle: `Editó ${nombre.trim()}${camposCambiados.length > 0 ? " (" + camposCambiados.join(", ") + ")" : ""}`,
       }).catch(() => {});
       onClose();
@@ -437,13 +451,18 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
               Nombre, categoría, tipo, descripción y unidad se aplican a las {tallasHermanas.length + 1} tallas de este modelo (código {producto.codigo}), no solo a esta.
             </p>
           )}
+          {esConsolidado && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Estás viendo el consolidado de todas las sedes — el stock y stock mínimo son por sede, así que no se pueden guardar desde acá. Elige una sede específica arriba para editarlos. Sí podés seguir eliminando el producto del catálogo.
+            </p>
+          )}
           <div>
             <label className="block text-xs font-medium text-stone-600 mb-1">Tipo de inventario</label>
             <div className="grid grid-cols-2 gap-2">
               {TIPOS.map((t) => (
                 <button key={t} type="button" onClick={() => setTipo(t)}
                   className={`py-2 rounded text-sm font-medium border transition ${tipo === t ? "" : "bg-white text-stone-600 border-stone-300 hover:bg-stone-50"}`}
-                  style={tipo === t ? { backgroundColor: "#EE0000", borderColor: "#EE0000", color: "#ffffff" } : undefined}>
+                  style={tipo === t ? { backgroundColor: "var(--marca-600)", borderColor: "var(--marca-600)", color: "var(--marca-texto)" } : undefined}>
                   {t}
                 </button>
               ))}
@@ -491,15 +510,15 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
             </div>
             <div>
               <label className="block text-xs font-medium text-stone-600 mb-1">Stock</label>
-              <input type="number" min="0" value={stock} onChange={(e) => setStock(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-500" />
+              <input type="number" min="0" value={stock} onChange={(e) => setStock(e.target.value)} disabled={esConsolidado}
+                className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-stone-100 disabled:text-stone-500" />
             </div>
           </div>
           <div>
             <label className="block text-xs font-medium text-stone-600 mb-1">Stock mínimo (opcional)</label>
-            <input type="number" min="0" value={stockMinimo} onChange={(e) => setStockMinimo(e.target.value)}
+            <input type="number" min="0" value={stockMinimo} onChange={(e) => setStockMinimo(e.target.value)} disabled={esConsolidado}
               placeholder="Dejar vacío si aún no se define"
-              className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-900 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+              className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-900 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-stone-100 disabled:text-stone-500" />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}
           {confirmarBorrar && (
@@ -511,7 +530,7 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
                 <button onClick={() => setConfirmarBorrar(false)} className="flex-1 py-1.5 rounded border border-stone-300 text-xs font-semibold text-stone-700 hover:bg-white">
                   No, cancelar
                 </button>
-                <button onClick={handleEliminar} disabled={guardando} className="flex-1 py-1.5 rounded bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-60">
+                <button onClick={handleEliminar} disabled={guardando} className="flex-1 py-1.5 rounded bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-60 peligro">
                   {guardando ? "Eliminando..." : "Sí, eliminar"}
                 </button>
               </div>
@@ -528,7 +547,7 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
           <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-stone-300 text-sm font-semibold text-stone-700 hover:bg-stone-50">
             Cancelar
           </button>
-          <button onClick={handleGuardar} disabled={guardando}
+          <button onClick={handleGuardar} disabled={guardando || esConsolidado}
             className="flex-1 py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60">
             {guardando ? "Guardando..." : "Guardar cambios"}
           </button>

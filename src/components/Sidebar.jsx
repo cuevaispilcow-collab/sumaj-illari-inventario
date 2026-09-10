@@ -4,9 +4,11 @@ import {
 } from "lucide-react";
 import Logo from "../Logo.jsx";
 import { puedeVer } from "../roles.js";
+import { temaDeSesion, UBICACIONES } from "../utils/constants.js";
 
-export default function Sidebar({ view, setView, onResetClick, onExportClick, rol, ubicacion, cerrarSesion, nombreSesion, onCambiarNombre }) {
+export default function Sidebar({ view, setView, onResetClick, onExportClick, rol, ubicacion, ubicacionVista, onChangeUbicacionVista, cerrarSesion, nombreSesion, onCambiarNombre }) {
   const [abierto, setAbierto] = useState(false);
+  const tema = temaDeSesion(ubicacionVista);
   const tabsTodas = [
     { id: "dashboard", label: "Panel", icon: LayoutDashboard },
     { id: "productos", label: "Productos", icon: Package },
@@ -26,15 +28,39 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, ro
   const contenidoNav = (
     <>
       <div className="flex items-center gap-3 px-5 pt-6 pb-5">
-        <Logo size={48} className="shrink-0" />
-        <div>
-          <p className="leading-none">
-            <span className="text-red-400 font-black tracking-tight text-xl">SUMAJ</span>
-            <span className="text-stone-100 font-black tracking-tight text-xl"> ILLARI</span>
-          </p>
-          <p className="text-xs text-stone-400 font-semibold mt-1">Sistema de gestión</p>
-        </div>
+        {tema === "jl" ? (
+          <>
+            <img src={`${import.meta.env.BASE_URL}logo-jl.png`} alt="JL Leonel" className="h-14 w-auto rounded shrink-0 bg-white p-1" />
+            <p className="text-xs text-stone-400 font-semibold">Sistema de gestión</p>
+          </>
+        ) : (
+          <>
+            <Logo size={48} className="shrink-0" />
+            <div>
+              <p className="leading-none">
+                <span className="text-red-400 font-black tracking-tight text-xl">SUMAJ</span>
+                <span className="text-stone-100 font-black tracking-tight text-xl"> ILLARI</span>
+              </p>
+              <p className="text-xs text-stone-400 font-semibold mt-1">Sistema de gestión</p>
+            </div>
+          </>
+        )}
       </div>
+      {rol === "gerente" && (
+        <div className="px-3 pb-3">
+          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wide mb-1 px-1">Viendo</label>
+          <select
+            value={ubicacionVista}
+            onChange={(e) => onChangeUbicacionVista(e.target.value)}
+            className="w-full px-2.5 py-2 rounded-lg border border-stone-700 bg-stone-800 text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+          >
+            <option value="todas">Todas (consolidado)</option>
+            {UBICACIONES.map((u) => (
+              <option key={u.id} value={u.id}>{u.nombre}</option>
+            ))}
+          </select>
+        </div>
+      )}
       <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
         {tabs.map((t) => {
           const Icon = t.icon;
@@ -95,11 +121,17 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, ro
       {/* Barra superior solo en móvil/tablet */}
       <div className="lg:hidden flex items-center justify-between bg-stone-900 text-stone-100 px-4 py-3">
         <div className="flex items-center gap-2.5">
-          <Logo size={36} />
-          <p className="leading-none">
-            <span className="text-red-400 font-black tracking-tight text-base">SUMAJ</span>
-            <span className="text-stone-100 font-black tracking-tight text-base"> ILLARI</span>
-          </p>
+          {tema === "jl" ? (
+            <img src={`${import.meta.env.BASE_URL}logo-jl.png`} alt="JL Leonel" className="h-9 w-auto rounded bg-white p-0.5" />
+          ) : (
+            <>
+              <Logo size={36} />
+              <p className="leading-none">
+                <span className="text-red-400 font-black tracking-tight text-base">SUMAJ</span>
+                <span className="text-stone-100 font-black tracking-tight text-base"> ILLARI</span>
+              </p>
+            </>
+          )}
         </div>
         <button onClick={() => setAbierto(true)} className="p-2 rounded hover:bg-stone-800">
           <Menu size={22} />

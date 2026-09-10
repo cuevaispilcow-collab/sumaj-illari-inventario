@@ -10,7 +10,7 @@ export default function ConfirmModal({ title, body, onCancel, onConfirm }) {
           <button onClick={onCancel} className="px-3 py-1.5 rounded text-sm font-medium border border-stone-300 text-stone-600 hover:bg-stone-50">
             Cancelar
           </button>
-          <button onClick={onConfirm} className="px-3 py-1.5 rounded text-sm font-medium bg-red-600 text-white hover:bg-red-700">
+          <button onClick={onConfirm} className="px-3 py-1.5 rounded text-sm font-medium bg-red-600 text-white hover:bg-red-700 peligro">
             Sí, reiniciar
           </button>
         </div>

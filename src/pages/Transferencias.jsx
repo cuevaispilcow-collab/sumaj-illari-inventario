@@ -24,7 +24,7 @@ function stockEnUbicacion(varianteRaw, ubicacionId, inventarios) {
   return ubicacionId === "sumaj_illari" ? (varianteRaw.stock || 0) : 0;
 }
 
-export default function Transferencias({ productos, variantes, inventarios, transferencias, showToast, nombre, rol, ubicacion }) {
+export default function Transferencias({ productos, variantes, inventarios, transferencias, showToast, nombre, rol, ubicacion, esConsolidado }) {
   const [productoId, setProductoId] = useState("");
   const [cantidad, setCantidad] = useState("");
   const [destino, setDestino] = useState("");
@@ -123,7 +123,7 @@ export default function Transferencias({ productos, variantes, inventarios, tran
 
       showToast("success", `Transferencia registrada: ${cant} ${producto.unidad} a ${NOMBRE_UBICACION[destino]}.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "TRANSFERENCIA",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "TRANSFERENCIA", ubicacion,
         detalle: `Transferencia de ${cant} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""} de ${NOMBRE_UBICACION[ubicacion]} a ${NOMBRE_UBICACION[destino]}`,
       }).catch(() => {});
       setCantidad(""); setError("");
@@ -153,6 +153,11 @@ export default function Transferencias({ productos, variantes, inventarios, tran
         </button>
       </div>
 
+      {esConsolidado ? (
+        <div className="max-w-lg bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar una transferencia — en modo consolidado no hay un origen desde el cual enviar.
+        </div>
+      ) : (
       <div className="max-w-lg">
         <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-stone-200 shadow-sm p-5 space-y-4">
           <div>
@@ -197,9 +202,10 @@ export default function Transferencias({ productos, variantes, inventarios, tran
           </button>
         </form>
       </div>
+      )}
 
       <div>
-        <h3 className="text-sm font-semibold text-stone-600 mb-2">Historial ({NOMBRE_UBICACION[ubicacion]})</h3>
+        <h3 className="text-sm font-semibold text-stone-600 mb-2">Historial ({esConsolidado ? "todas las sedes" : NOMBRE_UBICACION[ubicacion]})</h3>
         {historial.length === 0 ? (
           <EmptyState icon={ArrowRightLeft} title="Todavía no hay transferencias" body="Acá vas a ver las transferencias enviadas y recibidas por esta ubicación." />
         ) : (
@@ -226,7 +232,11 @@ export default function Transferencias({ productos, variantes, inventarios, tran
                         </td>
                         <td className="px-4 py-2 text-right text-stone-700">{t.cantidad}</td>
                         <td className="px-4 py-2">
-                          {enviada ? (
+                          {esConsolidado ? (
+                            <span className="inline-flex items-center gap-1 text-stone-600">
+                              {NOMBRE_UBICACION[t.origen] || t.origen} <ArrowRightLeft size={12} className="text-stone-400" /> {NOMBRE_UBICACION[t.destino] || t.destino}
+                            </span>
+                          ) : enviada ? (
                             <span className="inline-flex items-center gap-1 text-red-700">
                               <ArrowUpRight size={13} /> Enviado a {NOMBRE_UBICACION[t.destino] || t.destino}
                             </span>

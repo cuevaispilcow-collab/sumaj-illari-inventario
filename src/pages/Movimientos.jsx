@@ -1,13 +1,16 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   ArrowLeftRight, Plus, XCircle,
 } from "lucide-react";
-import { todayStr, round2 } from "../utils/format.js";
+import { todayStr, round2, formatFecha } from "../utils/format.js";
+import { UBICACIONES } from "../utils/constants.js";
 import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Movimientos({ productos, movimientos, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion }) {
+const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
+
+export default function Movimientos({ productos, movimientos, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado }) {
   const [tipo, setTipo] = useState("ENTRADA");
   const [productoId, setProductoId] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -64,7 +67,7 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
 
       showToast("success", `${tipo === "ENTRADA" ? "Entrada" : "Salida"} registrada. Stock actualizado.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "MOVIMIENTO",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "MOVIMIENTO", ubicacion,
         detalle: `${tipo === "ENTRADA" ? "Entrada" : "Salida"} de ${cant} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""}${motivo ? " — " + motivo : ""}`,
       }).catch(() => {});
       setCantidad(""); setMotivo(""); setError("");
@@ -75,12 +78,23 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
     }
   }
 
+  const historial = useMemo(
+    () => [...(movimientos || [])].sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : (a.id < b.id ? 1 : -1))),
+    [movimientos]
+  );
+
   if (productos.length === 0) {
     return <EmptyState icon={ArrowLeftRight} title="No hay productos todavía" body="Registra al menos un producto antes de poder anotar entradas o salidas." />;
   }
 
   return (
+    <div className="space-y-6">
     <div className="max-w-lg">
+      {esConsolidado ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar un movimiento — en modo consolidado no hay a dónde atribuirlo.
+        </div>
+      ) : (
       <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-stone-200 shadow-sm p-5 space-y-4">
         <div>
           <label className="block text-xs font-medium text-stone-600 mb-1">Tipo de movimiento</label>
@@ -131,6 +145,48 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
           <Plus size={16} /> {guardando ? "Guardando..." : "Registrar movimiento"}
         </button>
       </form>
+      )}
+    </div>
+
+    <div>
+      <h3 className="text-sm font-semibold text-stone-600 mb-2">Historial</h3>
+      {historial.length === 0 ? (
+        <p className="text-sm text-stone-400 py-6 text-center">Todavía no hay entradas ni salidas registradas.</p>
+      ) : (
+        <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-stone-50 border-b border-stone-200">
+                <tr>
+                  {esConsolidado && <th className="text-left px-4 py-2 font-medium text-stone-600">Sede</th>}
+                  <th className="text-left px-4 py-2 font-medium text-stone-600">Fecha</th>
+                  <th className="text-left px-4 py-2 font-medium text-stone-600">Tipo</th>
+                  <th className="text-left px-4 py-2 font-medium text-stone-600">Producto</th>
+                  <th className="text-right px-4 py-2 font-medium text-stone-600">Cant.</th>
+                  <th className="text-left px-4 py-2 font-medium text-stone-600">Motivo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historial.map((m) => (
+                  <tr key={m.id} className="border-b border-stone-50 last:border-0 hover:bg-stone-50/60 transition-colors">
+                    {esConsolidado && <td className="px-4 py-2 text-stone-500">{NOMBRE_UBICACION[m.ubicacion] || NOMBRE_UBICACION.sumaj_illari}</td>}
+                    <td className="px-4 py-2 text-stone-600 whitespace-nowrap">{formatFecha(m.fecha)}</td>
+                    <td className="px-4 py-2">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${m.tipo === "ENTRADA" ? "bg-teal-100 text-teal-700" : "bg-stone-100 text-stone-600"}`}>
+                        {m.tipo === "ENTRADA" ? "Entrada" : m.tipo === "SALIDA" ? "Salida" : m.tipo}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-stone-800">{m.productoNombre}</td>
+                    <td className="px-4 py-2 text-right text-stone-700">{m.cantidad}</td>
+                    <td className="px-4 py-2 text-stone-500">{m.motivo || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
     </div>
   );
 }

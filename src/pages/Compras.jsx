@@ -3,11 +3,14 @@ import {
   Plus, XCircle, Truck, BarChart3, AlertTriangle,
 } from "lucide-react";
 import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
+import { UBICACIONES } from "../utils/constants.js";
 import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Compras({ productos, movimientos, compras, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion }) {
+const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
+
+export default function Compras({ productos, movimientos, compras, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado }) {
   const [tab, setTab] = useState("registro"); // "registro" | "pareto"
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
@@ -100,7 +103,7 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
 
       showToast("success", `Compra registrada. Costo actualizado a ${formatSoles(costoFinal)}.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "COMPRA",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "COMPRA", ubicacion,
         detalle: `Compró ${cant} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""} a ${proveedor.trim()} — S/ ${totalCalc.toFixed(2)}`,
       }).catch(() => {});
       reset();
@@ -213,7 +216,12 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
         )
       ) : (
       <>
-      {showForm && (
+      {showForm && esConsolidado && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar una compra — en modo consolidado no hay a dónde atribuirla.
+        </div>
+      )}
+      {showForm && !esConsolidado && (
         <div className="bg-white rounded-lg border border-stone-200 shadow-sm p-4 space-y-3">
           {productos.length === 0 ? (
             <p className="text-sm text-stone-500">
@@ -302,6 +310,7 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-stone-500 border-b border-stone-100">
+                        {esConsolidado && <th className="text-left px-3 py-1.5 font-medium">Sede</th>}
                         <th className="text-left px-3 py-1.5 font-medium">Producto</th>
                         <th className="text-left px-3 py-1.5 font-medium">Proveedor</th>
                         <th className="text-right px-3 py-1.5 font-medium">Cant.</th>
@@ -312,6 +321,7 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
                     <tbody>
                       {items.map((c) => (
                         <tr key={c.id} className="border-b border-stone-50 last:border-0 hover:bg-stone-50/60 transition-colors">
+                          {esConsolidado && <td className="px-3 py-1.5 text-stone-500">{NOMBRE_UBICACION[c.ubicacion] || NOMBRE_UBICACION.sumaj_illari}</td>}
                           <td className="px-3 py-1.5 text-stone-800">
                             {c.producto}{c.talla !== "Única" ? ` - ${c.talla}` : ""}
                             <span className="text-stone-400 font-mono text-xs ml-1.5">{c.codigo}</span>

@@ -10,6 +10,18 @@ export const UBICACIONES = [
   { id: "tienda_x", nombre: "Tienda X", empresa: "JL" },
 ];
 
+// Qué identidad visual (logo, nombre, colores) corresponde según la
+// ubicación que se está VIENDO en este momento (para una vendedora, es
+// siempre la de su cuenta; para la gerente, es la que eligió en el
+// selector de ubicación — ver Sidebar). En modo consolidado ("todas")
+// no hay una sola empresa a la vista, así que se usa Sumaj Illari por
+// defecto.
+export function temaDeSesion(ubicacion) {
+  if (ubicacion === "todas") return "sumaj";
+  const empresa = (UBICACIONES.find((u) => u.id === ubicacion) || {}).empresa;
+  return empresa === "JL" ? "jl" : "sumaj";
+}
+
 // Qué pestañas puede ver cada ubicación, además de lo que ya filtra el
 // rol (gerente ve todo sin importar la ubicación). Tienda X es un punto
 // de venta simple — no produce, no compra materia prima.

@@ -1,6 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { ClipboardList, User, Calendar } from "lucide-react";
+import { ClipboardList, User, Calendar, MapPin } from "lucide-react";
 import EmptyState from "../components/EmptyState.jsx";
+import { UBICACIONES } from "../utils/constants.js";
+
+const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
 
 const ETIQUETAS_ACCION = {
   VENTA: { label: "Venta", color: "bg-teal-100 text-teal-700" },
@@ -25,7 +28,7 @@ function formatFechaHora(iso) {
   }
 }
 
-export default function Auditoria({ auditoria }) {
+export default function Auditoria({ auditoria, esConsolidado }) {
   const [filtroUsuario, setFiltroUsuario] = useState("todos");
 
   const usuarios = useMemo(() => {
@@ -45,7 +48,9 @@ export default function Auditoria({ auditoria }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-stone-700">Registro de actividad</h2>
+        <h2 className="text-sm font-semibold text-stone-700">
+          Registro de actividad {esConsolidado && <span className="text-stone-400 font-normal">— todas las sedes</span>}
+        </h2>
         {usuarios.length > 1 && (
           <select value={filtroUsuario} onChange={(e) => setFiltroUsuario(e.target.value)}
             className="px-2 py-1.5 rounded-lg border border-stone-300 text-xs text-stone-700 bg-white focus:outline-none focus:ring-2 focus:ring-red-500">
@@ -70,9 +75,12 @@ export default function Auditoria({ auditoria }) {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-stone-800">{r.detalle}</p>
-                  <p className="text-xs text-stone-400 mt-0.5 flex items-center gap-3">
+                  <p className="text-xs text-stone-400 mt-0.5 flex items-center gap-3 flex-wrap">
                     <span className="inline-flex items-center gap-1"><User size={11} /> {r.usuario}</span>
                     <span className="inline-flex items-center gap-1"><Calendar size={11} /> {formatFechaHora(r.fecha)}</span>
+                    {r.ubicacion && (
+                      <span className="inline-flex items-center gap-1"><MapPin size={11} /> {NOMBRE_UBICACION[r.ubicacion] || r.ubicacion}</span>
+                    )}
                   </p>
                 </div>
               </div>

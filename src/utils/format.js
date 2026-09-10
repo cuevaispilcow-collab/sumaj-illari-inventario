@@ -29,7 +29,10 @@ export function formatFecha(iso) {
 // "ubicacion" — esos se tratan como "sumaj_illari" (no se reasignan a
 // ninguna otra ubicación). Esta regla vive en un solo lugar para que
 // todas las pantallas filtren exactamente igual.
+// "todas" es la vista consolidada de la gerente (ver el selector de
+// ubicación) — ahí no se filtra nada, se devuelve todo junto.
 export function filtrarPorUbicacion(lista, ubicacion) {
+  if (ubicacion === "todas") return lista || [];
   return (lista || []).filter((item) => (item.ubicacion || "sumaj_illari") === ubicacion);
 }
 
@@ -38,6 +41,7 @@ export function filtrarPorUbicacion(lista, ubicacion) {
 // aparecer en el historial de SUS DOS ubicaciones involucradas — la que
 // envía (origen) y la que recibe (destino).
 export function filtrarTransferencias(lista, ubicacion) {
+  if (ubicacion === "todas") return lista || [];
   return (lista || []).filter((t) => t.origen === ubicacion || t.destino === ubicacion);
 }
 

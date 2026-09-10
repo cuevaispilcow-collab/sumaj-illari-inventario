@@ -7,7 +7,7 @@ import { todayStr } from "../utils/format.js";
 
 import { registrarAuditoria } from "../firestoreSync.js";
 
-export default function NuevoProducto({ productos, modelos, onSaveModelos, onSaveInventarios, inventarios, movimientos, onSave, showToast, setView, nombre, rol, ubicacion }) {
+export default function NuevoProducto({ productos, modelos, onSaveModelos, onSaveInventarios, inventarios, movimientos, onSave, showToast, setView, nombre, rol, ubicacion, esConsolidado }) {
   const [tipo, setTipo] = useState("Materia prima");
   const [codigo, setCodigo] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -83,7 +83,7 @@ export default function NuevoProducto({ productos, modelos, onSaveModelos, onSav
       await onSave([...productos, nuevaTalla], movimientos);
       showToast("success", `${talla.trim() || "Única"} de "${modeloExistente ? modeloExistente.producto : producto}" agregada.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PRODUCTO_CREADO",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PRODUCTO_CREADO", ubicacion,
         detalle: `Creó ${modeloExistente ? modeloExistente.producto : producto}${(talla.trim() || "Única") !== "Única" ? " - " + talla.trim() : ""}`,
       }).catch(() => {});
       setCodigo(""); setCategoria(""); setProducto(""); setDescripcion("");
@@ -97,13 +97,21 @@ export default function NuevoProducto({ productos, modelos, onSaveModelos, onSav
     }
   }
 
+  if (esConsolidado) {
+    return (
+      <div className="max-w-lg bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+        Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar un producto nuevo — su stock inicial necesita una sede concreta.
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-lg">
       <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-stone-200 shadow-sm p-5 space-y-4">
         <div>
           <label className="block text-xs font-medium text-stone-600 mb-1">Código <span className="text-red-600">*</span></label>
           <input value={codigo} onChange={(e) => { setCodigo(e.target.value); if (camposFaltantes.includes("codigo")) setCamposFaltantes(camposFaltantes.filter((f) => f !== "codigo")); }} placeholder="Ej: MP001"
-            className={`w-full px-3 py-2 rounded-lg border text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500 ${camposFaltantes.includes("codigo") ? "border-red-600" : "border-stone-300"}`} />
+            className={`w-full px-3 py-2 rounded-lg border text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500 ${camposFaltantes.includes("codigo") ? "border-red-600 peligro" : "border-stone-300"}`} />
         </div>
 
         {modeloExistente ? (
@@ -120,7 +128,7 @@ export default function NuevoProducto({ productos, modelos, onSaveModelos, onSav
               <div className="grid grid-cols-2 gap-2">
                 {TIPOS.map((t) => (
                   <button type="button" key={t} onClick={() => setTipo(t)}
-                    style={tipo === t ? { backgroundColor: "#EE0000", borderColor: "#EE0000", color: "#ffffff" } : undefined}
+                    style={tipo === t ? { backgroundColor: "var(--marca-600)", borderColor: "var(--marca-600)", color: "var(--marca-texto)" } : undefined}
                     className={`py-2 rounded text-sm font-medium border transition ${
                       tipo === t ? "" : "bg-white text-stone-600 border-stone-300 hover:bg-stone-50"
                     }`}>
@@ -133,13 +141,13 @@ export default function NuevoProducto({ productos, modelos, onSaveModelos, onSav
             <div>
               <label className="block text-xs font-medium text-stone-600 mb-1">Categoría <span className="text-red-600">*</span></label>
               <input value={categoria} onChange={(e) => { setCategoria(e.target.value); if (camposFaltantes.includes("categoria")) setCamposFaltantes(camposFaltantes.filter((f) => f !== "categoria")); }} placeholder="Ej: Telas"
-                className={`w-full px-3 py-2 rounded-lg border text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500 ${camposFaltantes.includes("categoria") ? "border-red-600" : "border-stone-300"}`} />
+                className={`w-full px-3 py-2 rounded-lg border text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500 ${camposFaltantes.includes("categoria") ? "border-red-600 peligro" : "border-stone-300"}`} />
             </div>
 
             <div>
               <label className="block text-xs font-medium text-stone-600 mb-1">Nombre del producto <span className="text-red-600">*</span></label>
               <input value={producto} onChange={(e) => { setProducto(e.target.value); if (camposFaltantes.includes("producto")) setCamposFaltantes(camposFaltantes.filter((f) => f !== "producto")); }} placeholder="Ej: Tela drill naranja"
-                className={`w-full px-3 py-2 rounded-lg border text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500 ${camposFaltantes.includes("producto") ? "border-red-600" : "border-stone-300"}`} />
+                className={`w-full px-3 py-2 rounded-lg border text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500 ${camposFaltantes.includes("producto") ? "border-red-600 peligro" : "border-stone-300"}`} />
             </div>
 
             <div>

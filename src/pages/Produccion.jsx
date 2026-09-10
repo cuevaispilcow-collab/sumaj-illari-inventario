@@ -3,10 +3,13 @@ import {
   Plus, XCircle, Trash2, ClipboardList, CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { todayStr, round2, formatSoles, formatFecha, filtrarPorUbicacion } from "../utils/format.js";
+import { UBICACIONES } from "../utils/constants.js";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
 
-export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre, ubicacion }) {
+const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
+
+export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre, ubicacion, esConsolidado }) {
   const [tab, setTab] = useState("producir"); // "producir" | "recetas" | "pedidos"
 
   const terminados = productos.filter((p) => p.tipo === "Terminado" || p.tipo === "En proceso");
@@ -45,18 +48,18 @@ export default function Produccion({ productos, variantes, modelos, onSaveModelo
       </div>
 
       {tab === "recetas" ? (
-        <RecetasEditor productos={productos} variantes={variantes} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} />
+        <RecetasEditor productos={productos} variantes={variantes} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} ubicacion={ubicacion} />
       ) : tab === "pedidos" ? (
-        <PedidosPanel productos={productos} variantes={variantes} modelos={modelos} onSaveModelos={onSaveModelos} movimientos={movimientos} ventas={ventas} producciones={produccionesUbicacion} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} nombre={nombre} ubicacion={ubicacion} />
+        <PedidosPanel productos={productos} variantes={variantes} modelos={modelos} onSaveModelos={onSaveModelos} movimientos={movimientos} ventas={ventas} producciones={produccionesUbicacion} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} nombre={nombre} ubicacion={ubicacion} esConsolidado={esConsolidado} />
       ) : (
-        <ProducirForm productos={productos} movimientos={movimientos} producciones={produccionesUbicacion} terminados={terminados} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} ubicacion={ubicacion} />
+        <ProducirForm productos={productos} movimientos={movimientos} producciones={produccionesUbicacion} terminados={terminados} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} ubicacion={ubicacion} esConsolidado={esConsolidado} />
       )}
     </div>
   );
 }
 
 
-function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, movimientos, onSave, showToast, nombre, rol }) {
+function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, movimientos, onSave, showToast, nombre, rol, ubicacion }) {
   const [terminadoId, setTerminadoId] = useState("");
   const [materiaPrimaId, setMateriaPrimaId] = useState("");
   const [cantidadPorUnidad, setCantidadPorUnidad] = useState("");
@@ -97,7 +100,7 @@ function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, m
       await onSave(newVariantes, movimientos);
       showToast("success", "Ficha técnica actualizada.");
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "RECETA",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "RECETA", ubicacion,
         detalle: `Actualizó la ficha técnica de ${terminado?.producto || ""}${terminado?.talla && terminado.talla !== "Única" ? " - " + terminado.talla : ""}`,
       }).catch(() => {});
     } catch (err) {
@@ -181,7 +184,7 @@ function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, m
 }
 
 
-function ProducirForm({ productos, movimientos, producciones, terminados, onSave, showToast, nombre, rol, ubicacion }) {
+function ProducirForm({ productos, movimientos, producciones, terminados, onSave, showToast, nombre, rol, ubicacion, esConsolidado }) {
   const [fecha, setFecha] = useState(todayStr());
   const [terminadoId, setTerminadoId] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -315,7 +318,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
 
       showToast("success", `Producción registrada. Costo actualizado a ${formatSoles(costoFinal)}.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PRODUCCION",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PRODUCCION", ubicacion,
         detalle: `Produjo ${cant} ${terminado?.producto || ""}${terminado?.talla && terminado.talla !== "Única" ? " - " + terminado.talla : ""}`,
       }).catch(() => {});
       setTerminadoId(""); setCantidad(""); setError("");
@@ -328,6 +331,11 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
 
   return (
     <div className="space-y-4">
+      {esConsolidado ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar una producción — en modo consolidado no hay a dónde atribuirla.
+        </div>
+      ) : (
       <div className="bg-white rounded-lg border border-stone-200 shadow-sm p-4 space-y-3">
         {terminados.length === 0 ? (
           <p className="text-sm text-stone-500">No hay productos de tipo "Terminado" o "En proceso" en el catálogo todavía.</p>
@@ -393,6 +401,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
           </>
         )}
       </div>
+      )}
 
       {producciones.length > 0 && (
         <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
@@ -400,6 +409,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
           <table className="w-full text-sm">
             <thead>
               <tr className="text-stone-500 border-b border-stone-100">
+                {esConsolidado && <th className="text-left px-4 py-1.5 font-medium">Sede</th>}
                 <th className="text-left px-4 py-1.5 font-medium">Fecha</th>
                 <th className="text-left px-4 py-1.5 font-medium">Producto</th>
                 <th className="text-right px-4 py-1.5 font-medium">Cantidad</th>
@@ -410,6 +420,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
             <tbody>
               {[...producciones].reverse().map((p) => (
                 <tr key={p.id} className="border-b border-stone-50 last:border-0 hover:bg-stone-50/60">
+                  {esConsolidado && <td className="px-4 py-1.5 text-stone-500">{NOMBRE_UBICACION[p.ubicacion] || NOMBRE_UBICACION.sumaj_illari}</td>}
                   <td className="px-4 py-1.5 text-stone-500">{formatFecha(p.fecha)}</td>
                   <td className="px-4 py-1.5 text-stone-800">{p.producto}{p.talla !== "Única" ? ` - ${p.talla}` : ""}</td>
                   <td className="px-4 py-1.5 text-right text-stone-700">{p.cantidad}</td>
@@ -426,7 +437,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
 }
 
 
-function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol, nombre, ubicacion }) {
+function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol, nombre, ubicacion, esConsolidado }) {
   const [showForm, setShowForm] = useState(false);
   const [cliente, setCliente] = useState("");
   const [productoId, setProductoId] = useState("");
@@ -473,6 +484,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
   async function handleCrear(e) {
     e.preventDefault();
     if (enviando) return;
+    if (esConsolidado) return setError("Estás en modo consolidado — elige una sede específica arriba para tomar un pedido.");
     if (!cliente.trim()) return setError("Ingresa el nombre del cliente.");
     if (!productoId) return setError("Selecciona qué producto se va a fabricar.");
     if (!cantidad || cant <= 0) return setError("Ingresa una cantidad válida, mayor a cero.");
@@ -506,7 +518,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
       await onSave(variantes, movimientos, ventas, undefined, producciones, [...pedidos, nuevoPedido]);
       showToast("success", `Pedido de ${cliente.trim()} registrado.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_TOMADO",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_TOMADO", ubicacion,
         detalle: `Tomó pedido de ${cliente.trim()} — ${cant} ${producto?.producto || ""} — S/ ${precio.toFixed(2)}`,
       }).catch(() => {});
       reset();
@@ -529,7 +541,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
 
     setTogglingId(pedido.id + op);
     registrarAuditoria({
-      fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_ETAPA",
+      fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_ETAPA", ubicacion: pedido.ubicacion || "sumaj_illari",
       detalle: `${yaMarcada ? "Desmarcó" : "Marcó"} "${op}" en el pedido de ${pedido.cliente} (${nuevasCompletadas.length}/${pedido.operaciones.length})`,
     }).catch(() => {});
 
@@ -551,17 +563,23 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
   // producido y registra el ingreso). Todo en una sola transacción, para
   // que no quede "a medias" si algo falla a mitad de camino.
   async function completarPedido(pedido, operacionesCompletadasFinal) {
+    // El pedido ya tiene su propia sede guardada desde que se tomó (ver
+    // handleCrear) — se usa ESA, no la ubicación que se esté mirando en
+    // este momento. Así, avanzar o completar un pedido funciona incluso
+    // si la gerente está viendo el consolidado: no hay ambigüedad,
+    // porque el pedido ya sabe de qué sede es.
+    const ubicacionPedido = pedido.ubicacion || "sumaj_illari";
     setCompletandoId(pedido.id);
     try {
       let margenFinal = 0;
       await operarInventarioSeguro(["inventarios", "movimientos", "producciones", "ventas", "pedidos"], (actuales) => {
         const invPorClave = Object.fromEntries(actuales.inventarios.map((i) => [i.id, i]));
         const leerInv = (varianteId) => {
-          const inv = invPorClave[`${varianteId}__${ubicacion}`];
+          const inv = invPorClave[`${varianteId}__${ubicacionPedido}`];
           if (inv) return inv;
           const enPantalla = productos.find((p) => p.id === varianteId);
           return {
-            id: `${varianteId}__${ubicacion}`, varianteId, ubicacion,
+            id: `${varianteId}__${ubicacionPedido}`, varianteId, ubicacion: ubicacionPedido,
             stock: enPantalla?.stock || 0, stockMinimo: enPantalla?.stockMinimo ?? null,
             costoUnitario: enPantalla?.costoUnitario ?? null,
             fechaIncorporacion: enPantalla?.fechaIncorporacion || todayStr(),
@@ -612,24 +630,24 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
         const nuevosMovimientos = [
           ...actuales.movimientos,
           ...consumo.map((c) => ({
-            id: `M${Date.now()}-${c.materiaPrimaId}`, fecha: todayStr(), tipo: "SALIDA", productoId: c.materiaPrimaId, ubicacion,
+            id: `M${Date.now()}-${c.materiaPrimaId}`, fecha: todayStr(), tipo: "SALIDA", productoId: c.materiaPrimaId, ubicacion: ubicacionPedido,
             productoNombre: `${c.materiaPrima.producto}${c.materiaPrima.talla !== "Única" ? " - " + c.materiaPrima.talla : ""}`,
             cantidad: c.necesario, motivo: `Consumo para pedido de ${pedido.cliente}`,
           })),
           {
-            id: `M${Date.now()}-prod`, fecha: todayStr(), tipo: "ENTRADA", productoId: pedido.productoId, ubicacion,
+            id: `M${Date.now()}-prod`, fecha: todayStr(), tipo: "ENTRADA", productoId: pedido.productoId, ubicacion: ubicacionPedido,
             productoNombre: `${terminadoReal.producto}${terminadoReal.talla !== "Única" ? " - " + terminadoReal.talla : ""}`,
             cantidad: pedido.cantidad, motivo: `Producción para pedido de ${pedido.cliente}`,
           },
           {
-            id: `M${Date.now()}-venta`, fecha: todayStr(), tipo: "VENTA", productoId: pedido.productoId, ubicacion,
+            id: `M${Date.now()}-venta`, fecha: todayStr(), tipo: "VENTA", productoId: pedido.productoId, ubicacion: ubicacionPedido,
             productoNombre: `${terminadoReal.producto}${terminadoReal.talla !== "Única" ? " - " + terminadoReal.talla : ""}`,
             cantidad: pedido.cantidad, motivo: `Entrega de pedido a ${pedido.cliente}`,
           },
         ];
 
         const produccion = {
-          id: `P${Date.now()}`, fecha: todayStr(), productoId: pedido.productoId, codigo: terminadoReal.codigo, ubicacion,
+          id: `P${Date.now()}`, fecha: todayStr(), productoId: pedido.productoId, codigo: terminadoReal.codigo, ubicacion: ubicacionPedido,
           producto: terminadoReal.producto, talla: terminadoReal.talla, cantidad: pedido.cantidad,
           costoUnitario: costoUnitarioReal, total: costoTotalReal,
           insumos: consumo.map((c) => ({ materiaPrimaId: c.materiaPrimaId, cantidad: c.necesario, costoUnitario: c.costoUnitarioMP })),
@@ -637,7 +655,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
 
         const precioUnitario = pedido.cantidad > 0 ? round2(pedido.precioCotizado / pedido.cantidad) : 0;
         const venta = {
-          id: `V${Date.now()}`, fecha: todayStr(), idProducto: terminadoReal.codigo, producto: terminadoReal.producto, ubicacion,
+          id: `V${Date.now()}`, fecha: todayStr(), idProducto: terminadoReal.codigo, producto: terminadoReal.producto, ubicacion: ubicacionPedido,
           cantidad: pedido.cantidad, talla: terminadoReal.talla, descripcion: `Pedido - ${pedido.cliente}`,
           precio: precioUnitario, efectivo: 0, yape: 0, tarjeta: 0, total: pedido.precioCotizado,
           costoUnitario: costoUnitarioReal, pedidoId: pedido.id,
@@ -661,7 +679,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
 
       showToast("success", `Pedido de ${pedido.cliente} completado y entregado. Margen: ${formatSoles(margenFinal)}.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_COMPLETADO",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_COMPLETADO", ubicacion: ubicacionPedido,
         detalle: `Pedido de ${pedido.cliente} — margen ${formatSoles(margenFinal)}`,
       }).catch(() => {});
     } catch (err) {
@@ -703,7 +721,12 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
         </button>
       </div>
 
-      {showForm && (
+      {showForm && esConsolidado && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder tomar un pedido — en modo consolidado no hay a dónde atribuirlo.
+        </div>
+      )}
+      {showForm && !esConsolidado && (
         <div className="bg-white rounded-lg border border-stone-200 shadow-sm p-4 space-y-3">
           {terminados.length === 0 ? (
             <p className="text-sm text-stone-500">No hay productos Terminado/En proceso en el catálogo todavía.</p>
@@ -827,7 +850,10 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
                 <div key={p.id} className="px-4 py-3 space-y-2.5">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-stone-800">{p.cliente}</p>
+                      <p className="text-sm font-semibold text-stone-800">
+                        {p.cliente}
+                        {esConsolidado && <span className="ml-2 text-xs font-normal text-stone-400">· {NOMBRE_UBICACION[p.ubicacion] || NOMBRE_UBICACION.sumaj_illari}</span>}
+                      </p>
                       <p className="text-xs text-stone-500">
                         {p.producto}{p.talla !== "Única" ? ` - ${p.talla}` : ""} · {p.cantidad} unid. · Entrega: {formatFecha(p.fechaEntrega)}
                       </p>
@@ -892,6 +918,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-stone-500 border-b border-stone-100">
+                  {esConsolidado && <th className="text-left px-4 py-1.5 font-medium">Sede</th>}
                   <th className="text-left px-4 py-1.5 font-medium">Cliente</th>
                   <th className="text-left px-4 py-1.5 font-medium">Producto</th>
                   <th className="text-right px-4 py-1.5 font-medium">Cant.</th>
@@ -902,6 +929,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
               <tbody>
                 {completados.map((p) => (
                   <tr key={p.id} className="border-b border-stone-50 last:border-0">
+                    {esConsolidado && <td className="px-4 py-1.5 text-stone-500">{NOMBRE_UBICACION[p.ubicacion] || NOMBRE_UBICACION.sumaj_illari}</td>}
                     <td className="px-4 py-1.5 text-stone-800 inline-flex items-center gap-1.5">
                       <CheckCircle2 size={13} className="text-green-600" /> {p.cliente}
                     </td>
