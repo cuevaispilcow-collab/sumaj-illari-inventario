@@ -45,3 +45,11 @@ export function filtrarTransferencias(lista, ubicacion) {
   return (lista || []).filter((t) => t.origen === ubicacion || t.destino === ubicacion);
 }
 
+// Igual que filtrarTransferencias, pero para solicitudes de producto
+// entre sedes: tiene que aparecer tanto para quien la pidió
+// (solicitante) como para quien tiene que responderla (proveedor).
+export function filtrarSolicitudes(lista, ubicacion) {
+  if (ubicacion === "todas") return lista || [];
+  return (lista || []).filter((s) => s.solicitante === ubicacion || s.proveedor === ubicacion);
+}
+

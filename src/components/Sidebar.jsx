@@ -6,7 +6,7 @@ import Logo from "../Logo.jsx";
 import { puedeVer } from "../roles.js";
 import { temaDeSesion, UBICACIONES } from "../utils/constants.js";
 
-export default function Sidebar({ view, setView, onResetClick, onExportClick, rol, ubicacion, ubicacionVista, onChangeUbicacionVista, cerrarSesion, nombreSesion, onCambiarNombre }) {
+export default function Sidebar({ view, setView, onResetClick, onExportClick, rol, ubicacion, ubicacionVista, onChangeUbicacionVista, cerrarSesion, nombreSesion, onCambiarNombre, solicitudesPendientes }) {
   const [abierto, setAbierto] = useState(false);
   const tema = temaDeSesion(ubicacionVista);
   const tabsTodas = [
@@ -65,6 +65,7 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, ro
         {tabs.map((t) => {
           const Icon = t.icon;
           const activo = view === t.id;
+          const conAviso = t.id === "transferencias" && solicitudesPendientes > 0;
           return (
             <button
               key={t.id}
@@ -74,7 +75,12 @@ export default function Sidebar({ view, setView, onResetClick, onExportClick, ro
               }`}
             >
               <Icon size={17} className="shrink-0" />
-              {t.label}
+              <span className="flex-1 text-left">{t.label}</span>
+              {conAviso && (
+                <span className="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center peligro">
+                  {solicitudesPendientes}
+                </span>
+              )}
             </button>
           );
         })}

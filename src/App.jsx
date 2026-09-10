@@ -4,7 +4,7 @@ import AuthGate from "./AuthGate.jsx";
 import { escucharColeccion, guardarColeccion, operarInventarioSeguro } from "./firestoreSync.js";
 import { puedeVer, vistaInicial } from "./roles.js";
 import { UBICACIONES, temaDeSesion } from "./utils/constants.js";
-import { todayStr, round2, filtrarPorUbicacion, filtrarTransferencias } from "./utils/format.js";
+import { todayStr, round2, filtrarPorUbicacion, filtrarTransferencias, filtrarSolicitudes } from "./utils/format.js";
 import Sidebar from "./components/Sidebar.jsx";
 import ConfirmModal from "./components/ConfirmModal.jsx";
 import Toast from "./components/Toast.jsx";
@@ -66,6 +66,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   const [producciones, setProducciones] = useState(null);
   const [pedidos, setPedidos] = useState(null);
   const [transferencias, setTransferencias] = useState(null);
+  const [solicitudes, setSolicitudes] = useState(null);
   const [auditoria, setAuditoria] = useState(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState(vistaInicial(rol));
@@ -176,12 +177,18 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
     const unsubTransferencias = escucharColeccion("transferencias", (items) => {
       setTransferencias(items);
     }, () => {});
+    // Igual que transferencias: no bloquea el arranque de la app, y como
+    // Firestore avisa en tiempo real, el badge de solicitudes pendientes
+    // en el menú aparece solo, sin que nadie recargue la página.
+    const unsubSolicitudes = escucharColeccion("solicitudes", (items) => {
+      setSolicitudes(items);
+    }, () => {});
     // La auditoría no bloquea que la app esté "lista" — es información
     // de supervisión, no algo que se necesite para operar el día a día.
     const unsubAuditoria = escucharColeccion("auditoria", (items) => {
       setAuditoria(items);
     }, () => {});
-    return () => { unsub1(); unsubModelos(); unsubInventarios(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsubTransferencias(); unsubAuditoria(); };
+    return () => { unsub1(); unsubModelos(); unsubInventarios(); unsub2(); unsub3(); unsub4(); unsub5(); unsub6(); unsubTransferencias(); unsubSolicitudes(); unsubAuditoria(); };
   }, []);
 
   // Red de seguridad: si algo falla en segundo plano (por ejemplo, el guardado),
@@ -333,6 +340,15 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   const movimientosUbicacion = React.useMemo(() => filtrarPorUbicacion(movimientos, ubicacionVista), [movimientos, ubicacionVista]);
   const comprasUbicacion = React.useMemo(() => filtrarPorUbicacion(compras, ubicacionVista), [compras, ubicacionVista]);
   const transferenciasUbicacion = React.useMemo(() => filtrarTransferencias(transferencias, ubicacionVista), [transferencias, ubicacionVista]);
+  const solicitudesUbicacion = React.useMemo(() => filtrarSolicitudes(solicitudes, ubicacionVista), [solicitudes, ubicacionVista]);
+  // Contador para el aviso rojo en "Transferencias" del menú: cuántas
+  // solicitudes le llegaron a ESTA sede y todavía nadie respondió. En
+  // consolidado se suman las de las 3 sedes, para que la gerente vea
+  // que hay algo pendiente en algún lado sin tener que ir mirando sede
+  // por sede.
+  const solicitudesPendientesParaMi = React.useMemo(() => {
+    return (solicitudes || []).filter((s) => s.estado === "pendiente" && (ubicacionVista === "todas" || s.proveedor === ubicacionVista)).length;
+  }, [solicitudes, ubicacionVista]);
   // La auditoría no es una de las pantallas que pediste que siguieran el
   // selector explícitamente, pero como ahora cada registro SÍ guarda de
   // qué sede vino (ver los 7 archivos que llaman a registrarAuditoria),
@@ -440,7 +456,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
 
   return (
     <div className="min-h-screen bg-stone-100 lg:flex">
-      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} />
+      <Sidebar view={vistaSegura} setView={setView} onResetClick={() => setConfirmReset(true)} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
           {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} />}
@@ -460,7 +476,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
             <Compras productos={productosCompletos} movimientos={movimientosUbicacion} compras={comprasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
           )}
           {vistaSegura === "transferencias" && (
-            <Transferencias productos={productosCompletos} variantes={productos} inventarios={inventarios} transferencias={transferenciasUbicacion} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
+            <Transferencias productos={productosCompletos} variantes={productos} inventarios={inventarios} transferencias={transferenciasUbicacion} solicitudes={solicitudesUbicacion} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
           )}
           {vistaSegura === "auditoria" && <Auditoria auditoria={auditoriaUbicacion} esConsolidado={esConsolidado} />}
           {vistaSegura === "produccion" && (

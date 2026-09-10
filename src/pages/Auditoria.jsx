@@ -17,6 +17,10 @@ const ETIQUETAS_ACCION = {
   PEDIDO_TOMADO: { label: "Pedido tomado", color: "bg-blue-100 text-blue-700" },
   PEDIDO_ETAPA: { label: "Etapa de pedido", color: "bg-stone-100 text-stone-600" },
   PEDIDO_COMPLETADO: { label: "Pedido completado", color: "bg-teal-100 text-teal-700" },
+  TRANSFERENCIA: { label: "Transferencia", color: "bg-purple-100 text-purple-700" },
+  SOLICITUD_CREADA: { label: "Solicitud creada", color: "bg-blue-100 text-blue-700" },
+  SOLICITUD_ENTREGADA: { label: "Solicitud entregada", color: "bg-teal-100 text-teal-700" },
+  SOLICITUD_RECHAZADA: { label: "Solicitud rechazada", color: "bg-stone-100 text-stone-600" },
 };
 
 function formatFechaHora(iso) {
