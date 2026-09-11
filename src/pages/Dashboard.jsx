@@ -1,6 +1,6 @@
 import React from "react";
 import {
-  Package, AlertTriangle, ReceiptText, Wallet, Award, RefreshCw,
+  Package, AlertTriangle, ReceiptText, Wallet, Award, RefreshCw, Banknote,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid,
@@ -11,7 +11,7 @@ import MetricCard from "../components/MetricCard.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import MovIcon from "../components/MovIcon.jsx";
 
-export default function Dashboard({ productos, movimientos, ventas, setView }) {
+export default function Dashboard({ productos, movimientos, ventas, setView, esConsolidado, valorizacionPorSede }) {
   if (productos.length === 0) {
     return (
       <EmptyState
@@ -30,6 +30,14 @@ export default function Dashboard({ productos, movimientos, ventas, setView }) {
   const bajoMinimo = productos.filter((p) => p.stockMinimo != null && p.stock <= p.stockMinimo);
   const conMinimoDefinido = productos.filter((p) => p.stockMinimo != null);
   const porReponer = productos.filter((p) => p.stockMinimo != null && p.stock <= p.stockMinimo);
+
+  // Valorización de inventario: cuánto dinero hay inmovilizado en stock
+  // (stock × costo unitario). Solo cuenta productos con costo conocido
+  // — los que no lo tienen quedarían valorizados en S/ 0, lo que
+  // distorsionaría el total en vez de simplemente faltar un dato.
+  const productosConCosto = productos.filter((p) => p.costoUnitario != null);
+  const productosSinCosto = productos.length - productosConCosto.length;
+  const valorInventario = round2(productosConCosto.reduce((s, p) => s + p.stock * p.costoUnitario, 0));
 
   const ventasTotalesSoles = round2(ventas.reduce((s, v) => s + v.total, 0));
   const ticketPromedio = ventas.length > 0 ? round2(ventasTotalesSoles / ventas.length) : 0;
@@ -70,6 +78,34 @@ export default function Dashboard({ productos, movimientos, ventas, setView }) {
         <MetricCard dark color={CHART_COLORS.danger} icon={AlertTriangle} label="Bajo stock mínimo" value={bajoMinimo.length} />
         <MetricCard dark color={CHART_COLORS.warning} icon={AlertTriangle} label="Sin stock" value={sinStock.length} />
         <MetricCard dark color={CHART_COLORS.purple} icon={Package} label="Productos" value={productos.length} />
+      </div>
+
+      {/* Valorización de inventario */}
+      <div className="bg-stone-900 rounded-xl border border-stone-800 shadow-sm p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Banknote size={15} className="text-stone-400" />
+          <h2 className="text-sm font-semibold text-stone-100">Valorización de inventario</h2>
+        </div>
+        {productosSinCosto > 0 && (
+          <p className="text-xs text-amber-400 bg-amber-950/60 border border-amber-800 rounded-lg px-3 py-2 mb-3 flex items-start gap-1.5">
+            <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+            {productosSinCosto} producto{productosSinCosto !== 1 ? "s" : ""} sin costo registrado no se {productosSinCosto !== 1 ? "incluyen" : "incluye"} en este total (el valor real es mayor).
+          </p>
+        )}
+        <p className="text-3xl font-bold text-emerald-400">{formatSoles(valorInventario)}</p>
+        <p className="text-xs text-stone-500 mt-1">
+          {esConsolidado ? "Total de las 3 sedes (Sumaj Illari + JL)" : "En esta sede"}
+        </p>
+        {esConsolidado && valorizacionPorSede && valorizacionPorSede.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-stone-800 space-y-1.5">
+            {valorizacionPorSede.map((v) => (
+              <div key={v.ubicacion} className="flex items-center justify-between text-sm">
+                <span className="text-stone-400">{v.nombre}</span>
+                <span className="font-semibold text-stone-200">{formatSoles(v.valor)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Fila 2: métricas de ventas */}

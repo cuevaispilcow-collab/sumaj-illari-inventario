@@ -53,3 +53,22 @@ export function filtrarSolicitudes(lista, ubicacion) {
   return (lista || []).filter((s) => s.solicitante === ubicacion || s.proveedor === ubicacion);
 }
 
+// Ordena una lista de items (cada uno con un campo "valor") de mayor a
+// menor, y calcula para cada uno qué % individual y acumulado
+// representa del total — y si cae dentro del ~80% que concentra la
+// mayor parte del valor (regla de Pareto/80-20). La usan tanto el
+// análisis de gasto en Compras como el análisis ABC de inventario, para
+// no tener la misma cuenta duplicada en dos lugares.
+export function calcularPareto(items) {
+  const lista = [...items].sort((a, b) => b.valor - a.valor);
+  const granTotal = round2(lista.reduce((s, p) => s + p.valor, 0));
+  let acumulado = 0;
+  return lista.map((p) => {
+    acumulado = round2(acumulado + p.valor);
+    const pctIndividual = granTotal > 0 ? round2((p.valor / granTotal) * 100) : 0;
+    const pctAcumulado = granTotal > 0 ? round2((acumulado / granTotal) * 100) : 0;
+    const pctAcumuladoAntes = round2(pctAcumulado - pctIndividual);
+    return { ...p, pctIndividual, pctAcumulado, enEl80: pctAcumuladoAntes < 80 };
+  });
+}
+

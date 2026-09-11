@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from "react";
 import {
-  Plus, XCircle, Truck, BarChart3, AlertTriangle,
+  Plus, XCircle, Truck, BarChart3, AlertTriangle, PieChart,
 } from "lucide-react";
-import { todayStr, round2, formatSoles, formatFecha } from "../utils/format.js";
+import { todayStr, round2, formatSoles, formatFecha, calcularPareto } from "../utils/format.js";
 import { UBICACIONES } from "../utils/constants.js";
 import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
@@ -138,23 +138,30 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
     const porProducto = {};
     for (const c of compras) {
       if (!porProducto[c.productoId]) {
-        porProducto[c.productoId] = { productoId: c.productoId, nombre: `${c.producto}${c.talla !== "Única" ? " - " + c.talla : ""}`, codigo: c.codigo, total: 0 };
+        porProducto[c.productoId] = { productoId: c.productoId, nombre: `${c.producto}${c.talla !== "Única" ? " - " + c.talla : ""}`, codigo: c.codigo, valor: 0 };
       }
-      porProducto[c.productoId].total += c.total;
+      porProducto[c.productoId].valor += c.total;
     }
-    const lista = Object.values(porProducto)
-      .map((p) => ({ ...p, total: round2(p.total) }))
-      .sort((a, b) => b.total - a.total);
-    const granTotal = round2(lista.reduce((s, p) => s + p.total, 0));
-    let acumulado = 0;
-    return lista.map((p) => {
-      acumulado = round2(acumulado + p.total);
-      const pctIndividual = granTotal > 0 ? round2((p.total / granTotal) * 100) : 0;
-      const pctAcumulado = granTotal > 0 ? round2((acumulado / granTotal) * 100) : 0;
-      const pctAcumuladoAntes = round2(pctAcumulado - pctIndividual);
-      return { ...p, pctIndividual, pctAcumulado, enEl80: pctAcumuladoAntes < 80 };
-    });
+    return calcularPareto(Object.values(porProducto).map((p) => ({ ...p, valor: round2(p.valor) })));
   }, [compras]);
+
+  // Análisis ABC de inventario: el mismo mecanismo de Pareto, pero sobre
+  // el VALOR del stock actual (stock × costo), no sobre lo gastado en
+  // comprarlo. Sirve para saber qué productos concentran el dinero que
+  // hoy está inmovilizado en el inventario. Los productos sin costo
+  // registrado no se pueden valorizar, así que quedan afuera (se avisa
+  // cuántos son, en vez de mezclarlos como si valieran S/ 0).
+  const productosConCosto = useMemo(() => productos.filter((p) => p.costoUnitario != null), [productos]);
+  const productosSinCostoAbc = productos.length - productosConCosto.length;
+  const abcInventario = useMemo(() => {
+    const items = productosConCosto
+      .map((p) => ({
+        productoId: p.id, nombre: `${p.producto}${p.talla !== "Única" ? " - " + p.talla : ""}`, codigo: p.codigo,
+        valor: round2((p.stock || 0) * p.costoUnitario),
+      }))
+      .filter((p) => p.valor > 0); // sin stock no aporta valor, no tiene sentido rankearlo
+    return calcularPareto(items);
+  }, [productosConCosto]);
 
   return (
     <div className="space-y-4">
@@ -167,6 +174,10 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
           <button onClick={() => setTab("pareto")}
             className={`px-3 py-1.5 rounded-full text-xs font-medium border transition inline-flex items-center gap-1 ${tab === "pareto" ? "bg-stone-900 text-white border-stone-900" : "bg-white text-stone-600 border-stone-300 hover:bg-stone-50"}`}>
             <BarChart3 size={13} /> Análisis 80/20
+          </button>
+          <button onClick={() => setTab("abc")}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition inline-flex items-center gap-1 ${tab === "abc" ? "bg-stone-900 text-white border-stone-900" : "bg-white text-stone-600 border-stone-300 hover:bg-stone-50"}`}>
+            <PieChart size={13} /> ABC de inventario
           </button>
         </div>
         {tab === "registro" && (
@@ -206,7 +217,7 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
                       <td className="px-4 py-2 text-stone-800">
                         {p.nombre} <span className="text-stone-400 font-mono text-xs ml-1">{p.codigo}</span>
                       </td>
-                      <td className="px-4 py-2 text-right font-semibold text-stone-900">{formatSoles(p.total)}</td>
+                      <td className="px-4 py-2 text-right font-semibold text-stone-900">{formatSoles(p.valor)}</td>
                       <td className="px-4 py-2 text-right text-stone-600">{p.pctIndividual}%</td>
                       <td className="px-4 py-2 text-right text-stone-600">{p.pctAcumulado}%</td>
                       <td className="px-4 py-2 text-center">
@@ -221,6 +232,58 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
             </div>
           </div>
         )
+      ) : tab === "abc" ? (
+        <>
+          {productosSinCostoAbc > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 mb-4">
+              <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-800">
+                {productosSinCostoAbc} producto{productosSinCostoAbc !== 1 ? "s" : ""} sin costo registrado no se {productosSinCostoAbc !== 1 ? "incluyen" : "incluye"} en este análisis (ve a "Compras" para registrarles un costo).
+              </p>
+            </div>
+          )}
+          {abcInventario.length === 0 ? (
+            <EmptyState icon={PieChart} title="Todavía no hay inventario para analizar" body="En cuanto tengas stock con costo registrado, aquí vas a ver qué productos concentran el 80% del valor inmovilizado." />
+          ) : (
+            <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
+              <div className="bg-stone-50 px-4 py-2.5 border-b border-stone-200">
+                <p className="text-sm text-stone-600">
+                  Los productos marcados en rojo (zona A) concentran aproximadamente el <strong>80% del valor hoy inmovilizado en inventario</strong> ({ubicacion === "todas" ? "consolidado" : "esta sede"}). Son los que más conviene vigilar de cerca.
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-stone-50 border-b border-stone-200">
+                    <tr>
+                      <th className="text-left px-4 py-2 font-medium text-stone-600">Producto</th>
+                      <th className="text-right px-4 py-2 font-medium text-stone-600">Valor en stock</th>
+                      <th className="text-right px-4 py-2 font-medium text-stone-600">% del total</th>
+                      <th className="text-right px-4 py-2 font-medium text-stone-600">% acumulado</th>
+                      <th className="text-center px-4 py-2 font-medium text-stone-600">Zona</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {abcInventario.map((p) => (
+                      <tr key={p.productoId} className={`border-b border-stone-50 last:border-0 ${p.enEl80 ? "bg-red-50/40" : ""}`}>
+                        <td className="px-4 py-2 text-stone-800">
+                          {p.nombre} <span className="text-stone-400 font-mono text-xs ml-1">{p.codigo}</span>
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-stone-900">{formatSoles(p.valor)}</td>
+                        <td className="px-4 py-2 text-right text-stone-600">{p.pctIndividual}%</td>
+                        <td className="px-4 py-2 text-right text-stone-600">{p.pctAcumulado}%</td>
+                        <td className="px-4 py-2 text-center">
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.enEl80 ? "bg-red-100 text-red-700" : "bg-stone-100 text-stone-500"}`}>
+                            {p.enEl80 ? "A" : "B/C"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
       <>
       {showForm && esConsolidado && (

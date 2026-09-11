@@ -294,19 +294,6 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
     return Promise.resolve();
   }
 
-  // Lo que ve cada pantalla: cada talla (producto) "completa" con los
-  // datos de su modelo (nombre, categoría, tipo...) y con el stock/costo
-  // de la ubicación que se está VIENDO ahora (ubicacionVista) — no un
-  // solo stock global. Si un producto todavía no tiene un registro de
-  // inventario para esa ubicación (ej. porque se creó antes de separar
-  // por ubicación), se usa su stock antiguo como el de "sumaj_illari" —
-  // así no se pierde nada de lo que ya existía.
-  //
-  // En modo consolidado ("todas", solo gerente) no hay una sola
-  // ubicación: se SUMA el stock (y el stock mínimo) de las 3 sedes, y el
-  // costo unitario se promedia ponderado por cuánto stock aporta cada
-  // una — el mismo criterio que ya usan Compras y Transferencias para
-  // combinar costos de distinto origen.
   // Mapas de búsqueda rápida por clave "varianteId__ubicacion" — se
   // recalculan solo cuando cambian inventarios/costos, no en cada
   // render. Los usan tanto productosCompletos como exportarExcel (que
@@ -371,6 +358,22 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
       return { ...(modelosPorCodigo[p.codigo] || {}), ...p, ...datosInventario };
     });
   }, [productos, modelos, inventariosPorClave, costosPorClave, ubicacionVista]);
+
+  // Cuánto dinero hay inmovilizado en stock, por sede — SIEMPRE las 3,
+  // sin importar qué se esté mirando (el Dashboard decide cuándo
+  // mostrar el desglose completo, ej. en consolidado). Solo suma
+  // productos con costo conocido; el conteo de sin-costo lo calcula el
+  // propio Dashboard sobre `productosCompletos`, que ya trae ese dato.
+  const valorizacionPorSede = React.useMemo(() => {
+    if (!productos || !inventarios) return [];
+    return UBICACIONES.map((u) => {
+      const valor = productos.reduce((s, p) => {
+        const d = datosEnUbicacion(p, u.id);
+        return s + (d.costoUnitario != null ? (d.stock || 0) * d.costoUnitario : 0);
+      }, 0);
+      return { ubicacion: u.id, nombre: u.nombre, valor: round2(valor) };
+    });
+  }, [productos, inventariosPorClave, costosPorClave]);
 
   // Versiones de ventas, movimientos, compras y transferencias filtradas
   // por la ubicación que se está VIENDO — para que, por ejemplo, una
@@ -534,7 +537,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
       <Sidebar view={vistaSegura} setView={setView} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
-          {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} />}
+          {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} esConsolidado={esConsolidado} valorizacionPorSede={valorizacionPorSede} />}
           {vistaSegura === "productos" && (
             <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} inventarios={inventarios} onSaveInventarios={persistInventarios} ubicacion={ubicacionVista} esConsolidado={esConsolidado} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} nombre={nombreSesion} />
           )}
