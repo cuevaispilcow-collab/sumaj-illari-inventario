@@ -212,7 +212,7 @@ export default function Transferencias({ productos, variantes, inventarios, tran
 
       <div>
         <h3 className="text-sm font-semibold text-stone-600 mb-2">
-          Solicitudes {esConsolidado ? `(${nombreVista})` : `(${NOMBRE_UBICACION[ubicacion]})`}
+          Solicitudes — {esConsolidado ? nombreVista : NOMBRE_UBICACION[ubicacion]}
         </h3>
         {historialSolicitudes.length === 0 ? (
           <EmptyState icon={Clock} title="Todavía no hay solicitudes" body="Cuando pidas producto a otra sede (o te lo pidan a vos) desde 'Consultar en otras sedes', va a aparecer acá." />
@@ -334,7 +334,7 @@ export default function Transferencias({ productos, variantes, inventarios, tran
       )}
 
       <div>
-        <h3 className="text-sm font-semibold text-stone-600 mb-2">Historial ({esConsolidado ? nombreVista : NOMBRE_UBICACION[ubicacion]})</h3>
+        <h3 className="text-sm font-semibold text-stone-600 mb-2">Historial — {esConsolidado ? nombreVista : NOMBRE_UBICACION[ubicacion]}</h3>
         {historialTransferencias.length === 0 ? (
           <EmptyState icon={ArrowRightLeft} title="Todavía no hay transferencias" body="Acá vas a ver las transferencias enviadas y recibidas por esta ubicación." />
         ) : (

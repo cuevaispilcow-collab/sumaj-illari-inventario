@@ -4,11 +4,35 @@ export const TIPO_COLORS = { "Materia prima": "#a8a29e", "En proceso": "#d97706"
 // Las 3 ubicaciones físicas del sistema. SUMAJ ILLARI y JL son empresas
 // legalmente distintas; Tienda X pertenece a JL (no es una tercera
 // empresa), pero tiene su propio inventario físico.
+//
+// Cada sede tiene DOS nombres para mostrar, según el contexto:
+// - "nombre": el nombre completo, sin ambigüedad — se usa en cualquier
+//   lugar donde el nombre de la sede aparece SUELTO, sin nada alrededor
+//   que ya diga de qué empresa es (la columna "Sede" de las tablas, el
+//   Excel, los avisos, "Enviar a" en Transferencias, etc.).
+// - "nombreCorto": el nombre corto, solo para el selector de sede del
+//   menú — ahí sí hay una cabecera visual ("JL LEONEL") que ya da el
+//   contexto de empresa, así que repetirlo en cada sede sería redundante.
+// Los ids (sumaj_illari, jl_planta, tienda_x) y el campo "empresa" son
+// identificadores internos — no son texto para mostrar, así que no
+// llevan mayúsculas/formato "bonito" y no deben cambiar nunca sin
+// avisar (están guardados en Firestore, en usuarios y en cada registro).
 export const UBICACIONES = [
-  { id: "sumaj_illari", nombre: "Sumaj Illari", empresa: "SUMAJ ILLARI" },
-  { id: "jl_planta", nombre: "JL - Planta", empresa: "JL" },
-  { id: "tienda_x", nombre: "Tienda X", empresa: "JL" },
+  { id: "sumaj_illari", nombre: "Sumaj Illari", nombreCorto: "Sumaj Illari", empresa: "SUMAJ ILLARI" },
+  { id: "jl_planta", nombre: "JL Leonel - Planta", nombreCorto: "Planta", empresa: "JL" },
+  { id: "tienda_x", nombre: "JL Leonel - Tienda", nombreCorto: "Tienda", empresa: "JL" },
 ];
+
+// Cómo se muestra el nombre de una EMPRESA (no de una sede), en los dos
+// contextos donde hace falta: el título del grupo en el selector (todo
+// en mayúsculas, como un nombre de marca) y el texto de "toda la
+// empresa" en avisos sueltos (capitalización normal, de lectura). Si
+// una empresa no está en el mapa, se usa su clave interna tal cual —
+// así el sistema no se rompe si se agrega una empresa nueva sin
+// actualizar esto, aunque el texto se vea menos prolijo hasta que se
+// defina.
+export const EMPRESA_NOMBRE_GRUPO = { JL: "JL LEONEL" };
+export const EMPRESA_NOMBRE_COMPLETO = { JL: "JL Leonel" };
 
 // Agrupa las ubicaciones por empresa, en el mismo orden en que aparecen
 // en UBICACIONES. La usan el selector de sede (para saber a qué
@@ -51,15 +75,15 @@ export function sedesDeVista(ubicacion) {
   return [ubicacion];
 }
 
-// Nombre legible de una vista ("Sumaj Illari", "JL (todas sus sedes)",
-// "todas las sedes"). Lo usan los avisos que bloquean el registro en
-// modo consolidado/empresa, para no decir "todas las sedes" cuando en
+// Nombre legible de una vista ("Sumaj Illari", "JL Leonel (todas sus
+// sedes)", "Vista global"). Lo usan los avisos que bloquean el registro
+// en modo consolidado/empresa, para no decir algo genérico cuando en
 // realidad se está viendo solo una empresa — un aviso impreciso genera
 // desconfianza, así que vale la pena que este texto sea exacto.
 export function nombreDeVista(ubicacion) {
-  if (ubicacion === "todas") return "todas las sedes";
+  if (ubicacion === "todas") return "Vista global";
   const empresa = empresaDeVista(ubicacion);
-  if (empresa) return `${empresa} (todas sus sedes)`;
+  if (empresa) return `${EMPRESA_NOMBRE_COMPLETO[empresa] || empresa} (todas sus sedes)`;
   return (UBICACIONES.find((u) => u.id === ubicacion) || {}).nombre || ubicacion;
 }
 

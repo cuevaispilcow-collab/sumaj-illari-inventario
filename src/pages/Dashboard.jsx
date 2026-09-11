@@ -94,7 +94,7 @@ export default function Dashboard({ productos, movimientos, ventas, setView, esC
         )}
         <p className="text-3xl font-bold text-emerald-400">{formatSoles(valorInventario)}</p>
         <p className="text-xs text-stone-500 mt-1">
-          {esConsolidado ? `Total de ${nombreVista}` : "En esta sede"}
+          {esConsolidado ? `Total en ${nombreVista}` : "En esta sede"}
         </p>
         {esConsolidado && valorizacionPorSede && valorizacionPorSede.length > 0 && (
           <div className="mt-3 pt-3 border-t border-stone-800 space-y-1.5">

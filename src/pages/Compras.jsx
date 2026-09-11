@@ -368,7 +368,7 @@ export default function Compras({ productos, variantes, movimientos, compras, on
             <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
               <div className="bg-stone-50 px-4 py-2.5 border-b border-stone-200">
                 <p className="text-sm text-stone-600">
-                  Los productos marcados en rojo (zona A) concentran aproximadamente el <strong>80% del valor hoy inmovilizado en inventario</strong> ({esConsolidado ? nombreVista : "esta sede"}). Son los que más conviene vigilar de cerca.
+                  Los productos marcados en rojo (zona A) concentran aproximadamente el <strong>80% del valor hoy inmovilizado en inventario</strong> — {esConsolidado ? nombreVista : "esta sede"}. Son los que más conviene vigilar de cerca.
                 </p>
               </div>
               <div className="overflow-x-auto">

@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import Logo from "../Logo.jsx";
 import { puedeVer } from "../roles.js";
-import { temaDeSesion, sedesPorEmpresa, claveVistaEmpresa } from "../utils/constants.js";
+import { temaDeSesion, sedesPorEmpresa, claveVistaEmpresa, EMPRESA_NOMBRE_GRUPO } from "../utils/constants.js";
 
 export default function Sidebar({ view, setView, onExportClick, rol, ubicacion, ubicacionVista, onChangeUbicacionVista, cerrarSesion, nombreSesion, onCambiarNombre, solicitudesPendientes }) {
   const [abierto, setAbierto] = useState(false);
@@ -60,18 +60,24 @@ export default function Sidebar({ view, setView, onExportClick, rol, ubicacion, 
             onChange={(e) => onChangeUbicacionVista(e.target.value)}
             className="w-full px-2.5 py-2 rounded-lg border border-stone-700 bg-stone-800 text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
           >
-            <option value="todas">Todas (consolidado)</option>
+            <option value="todas">Vista global</option>
             {Object.entries(gruposEmpresa).map(([empresa, sedes]) =>
               sedes.length > 1 ? (
-                <optgroup key={empresa} label={empresa}>
-                  <option value={claveVistaEmpresa(empresa)}>{empresa} (todas sus sedes)</option>
+                <optgroup key={empresa} label={EMPRESA_NOMBRE_GRUPO[empresa] || empresa}>
+                  <option value={claveVistaEmpresa(empresa)}>Todas sus sedes</option>
                   {sedes.map((u) => (
-                    <option key={u.id} value={u.id}>{u.nombre}</option>
+                    <option key={u.id} value={u.id}>{u.nombreCorto}</option>
                   ))}
                 </optgroup>
               ) : (
+                // Una sola sede: se muestra al mismo nivel que un grupo,
+                // así que usa el nombre de la EMPRESA (en mayúsculas,
+                // como "JL LEONEL") y no el de la sede — para que se lea
+                // como lo que es, una empresa, aunque hoy solo tenga una
+                // sede física. Si algún día suma una segunda, pasa a
+                // agruparse solo, sin tocar este archivo.
                 sedes.map((u) => (
-                  <option key={u.id} value={u.id}>{u.nombre}</option>
+                  <option key={u.id} value={u.id}>{empresa}</option>
                 ))
               )
             )}
