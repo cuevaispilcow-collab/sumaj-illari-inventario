@@ -30,7 +30,7 @@ function dividirInventarioYCosto(inventariosActuales, costosActuales, cambios) {
   return { nuevosInventarios, nuevosCostos };
 }
 
-export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre, ubicacion, esConsolidado }) {
+export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre, ubicacion, esConsolidado, nombreVista }) {
   const [tab, setTab] = useState("producir"); // "producir" | "recetas" | "pedidos"
 
   const terminados = productos.filter((p) => p.tipo === "Terminado" || p.tipo === "En proceso");
@@ -71,9 +71,9 @@ export default function Produccion({ productos, variantes, modelos, onSaveModelo
       {tab === "recetas" ? (
         <RecetasEditor productos={productos} variantes={variantes} terminados={terminados} insumosDisponibles={insumosDisponibles} movimientos={movimientos} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} ubicacion={ubicacion} />
       ) : tab === "pedidos" ? (
-        <PedidosPanel productos={productos} variantes={variantes} modelos={modelos} onSaveModelos={onSaveModelos} movimientos={movimientos} ventas={ventas} producciones={produccionesUbicacion} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} nombre={nombre} ubicacion={ubicacion} esConsolidado={esConsolidado} />
+        <PedidosPanel productos={productos} variantes={variantes} modelos={modelos} onSaveModelos={onSaveModelos} movimientos={movimientos} ventas={ventas} producciones={produccionesUbicacion} pedidos={pedidos || []} terminados={terminados} onSave={onSave} showToast={showToast} rol={rol} nombre={nombre} ubicacion={ubicacion} esConsolidado={esConsolidado} nombreVista={nombreVista} />
       ) : (
-        <ProducirForm productos={productos} movimientos={movimientos} producciones={produccionesUbicacion} terminados={terminados} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} ubicacion={ubicacion} esConsolidado={esConsolidado} />
+        <ProducirForm productos={productos} movimientos={movimientos} producciones={produccionesUbicacion} terminados={terminados} onSave={onSave} showToast={showToast} nombre={nombre} rol={rol} ubicacion={ubicacion} esConsolidado={esConsolidado} nombreVista={nombreVista} />
       )}
     </div>
   );
@@ -205,7 +205,7 @@ function RecetasEditor({ productos, variantes, terminados, insumosDisponibles, m
 }
 
 
-function ProducirForm({ productos, movimientos, producciones, terminados, onSave, showToast, nombre, rol, ubicacion, esConsolidado }) {
+function ProducirForm({ productos, movimientos, producciones, terminados, onSave, showToast, nombre, rol, ubicacion, esConsolidado, nombreVista }) {
   const [fecha, setFecha] = useState(todayStr());
   const [terminadoId, setTerminadoId] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -356,7 +356,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
     <div className="space-y-4">
       {esConsolidado ? (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar una producción — en modo consolidado no hay a dónde atribuirla.
+          Estás viendo {nombreVista}. Elige una sede específica arriba (en el menú) para poder registrar una producción — en modo consolidado no hay a dónde atribuirla.
         </div>
       ) : (
       <div className="bg-white rounded-lg border border-stone-200 shadow-sm p-4 space-y-3">
@@ -460,7 +460,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
 }
 
 
-function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol, nombre, ubicacion, esConsolidado }) {
+function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, producciones, pedidos, terminados, onSave, showToast, rol, nombre, ubicacion, esConsolidado, nombreVista }) {
   const [showForm, setShowForm] = useState(false);
   const [cliente, setCliente] = useState("");
   const [productoId, setProductoId] = useState("");
@@ -745,7 +745,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
 
       {showForm && esConsolidado && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder tomar un pedido — en modo consolidado no hay a dónde atribuirlo.
+          Estás viendo {nombreVista}. Elige una sede específica arriba (en el menú) para poder tomar un pedido — en modo consolidado no hay a dónde atribuirlo.
         </div>
       )}
       {showForm && !esConsolidado && (

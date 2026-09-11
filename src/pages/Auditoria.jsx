@@ -32,7 +32,7 @@ function formatFechaHora(iso) {
   }
 }
 
-export default function Auditoria({ auditoria, esConsolidado }) {
+export default function Auditoria({ auditoria, esConsolidado, nombreVista }) {
   const [filtroUsuario, setFiltroUsuario] = useState("todos");
 
   const usuarios = useMemo(() => {
@@ -53,7 +53,7 @@ export default function Auditoria({ auditoria, esConsolidado }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold text-stone-700">
-          Registro de actividad {esConsolidado && <span className="text-stone-400 font-normal">— todas las sedes</span>}
+          Registro de actividad {esConsolidado && <span className="text-stone-400 font-normal">— {nombreVista}</span>}
         </h2>
         {usuarios.length > 1 && (
           <select value={filtroUsuario} onChange={(e) => setFiltroUsuario(e.target.value)}

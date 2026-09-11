@@ -10,7 +10,7 @@ import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js"
 
 const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
 
-export default function Movimientos({ productos, movimientos, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado }) {
+export default function Movimientos({ productos, movimientos, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado, nombreVista }) {
   const [tipo, setTipo] = useState("ENTRADA");
   const [productoId, setProductoId] = useState("");
   const [cantidad, setCantidad] = useState("");
@@ -91,7 +91,7 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
     <div className="max-w-lg">
       {esConsolidado ? (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar un movimiento — en modo consolidado no hay a dónde atribuirlo.
+          Estás viendo {nombreVista}. Elige una sede específica arriba (en el menú) para poder registrar un movimiento — en modo consolidado no hay a dónde atribuirlo.
         </div>
       ) : (
       <form onSubmit={handleSubmit} className="bg-white rounded-lg border border-stone-200 shadow-sm p-5 space-y-4">

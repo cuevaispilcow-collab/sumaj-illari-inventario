@@ -1,3 +1,5 @@
+import { sedesDeVista } from "./constants.js";
+
 export function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -23,34 +25,45 @@ export function formatFecha(iso) {
 }
 
 
-// Filtra una lista (ventas, movimientos, compras, producciones, pedidos...)
-// para dejar solo lo que corresponde a una ubicación. Los registros
-// antiguos, de antes de separar por ubicación, no tienen el campo
-// "ubicacion" — esos se tratan como "sumaj_illari" (no se reasignan a
-// ninguna otra ubicación). Esta regla vive en un solo lugar para que
-// todas las pantallas filtren exactamente igual.
-// "todas" es la vista consolidada de la gerente (ver el selector de
-// ubicación) — ahí no se filtra nada, se devuelve todo junto.
+// Filtra una lista (ventas, movimientos, compras, producciones, pedidos,
+// auditoría...) para dejar solo lo que corresponde a una vista — una
+// sede puntual, una empresa completa, o el consolidado ("todas"). Los
+// registros antiguos, de antes de separar por ubicación, no tienen el
+// campo "ubicacion" — esos se tratan como "sumaj_illari".
+//
+// Un registro es visible en una vista si TODAS las sedes que representa
+// (normalmente una sola) están dentro de las sedes de esa vista. Esto
+// hace que un registro normal (una sola sede real) se vea exactamente
+// igual que siempre, y de paso resuelve bien el único caso donde un
+// registro representa más de una sede a la vez (ej. la auditoría de una
+// compra distribuida entre varias sedes, guardada con la vista que
+// estaba activa en ese momento): aparece en el consolidado y en su
+// propia vista de empresa, pero no se cuela en una sede puntual.
 export function filtrarPorUbicacion(lista, ubicacion) {
-  if (ubicacion === "todas") return lista || [];
-  return (lista || []).filter((item) => (item.ubicacion || "sumaj_illari") === ubicacion);
+  const sedesVista = new Set(sedesDeVista(ubicacion));
+  return (lista || []).filter((item) => {
+    const sedesItem = sedesDeVista(item.ubicacion || "sumaj_illari");
+    return sedesItem.every((s) => sedesVista.has(s));
+  });
 }
 
 // Filtra transferencias entre ubicaciones: a diferencia de filtrarPorUbicacion
 // (que compara un solo campo "ubicacion"), una transferencia tiene que
 // aparecer en el historial de SUS DOS ubicaciones involucradas — la que
-// envía (origen) y la que recibe (destino).
+// envía (origen) y la que recibe (destino). Origen y destino son
+// siempre una sede real puntual (nunca "todas" ni una empresa), así que
+// alcanza con ver si alguna de las dos está entre las sedes de la vista.
 export function filtrarTransferencias(lista, ubicacion) {
-  if (ubicacion === "todas") return lista || [];
-  return (lista || []).filter((t) => t.origen === ubicacion || t.destino === ubicacion);
+  const sedesVista = new Set(sedesDeVista(ubicacion));
+  return (lista || []).filter((t) => sedesVista.has(t.origen) || sedesVista.has(t.destino));
 }
 
 // Igual que filtrarTransferencias, pero para solicitudes de producto
 // entre sedes: tiene que aparecer tanto para quien la pidió
 // (solicitante) como para quien tiene que responderla (proveedor).
 export function filtrarSolicitudes(lista, ubicacion) {
-  if (ubicacion === "todas") return lista || [];
-  return (lista || []).filter((s) => s.solicitante === ubicacion || s.proveedor === ubicacion);
+  const sedesVista = new Set(sedesDeVista(ubicacion));
+  return (lista || []).filter((s) => sedesVista.has(s.solicitante) || sedesVista.has(s.proveedor));
 }
 
 // Ordena una lista de items (cada uno con un campo "valor") de mayor a

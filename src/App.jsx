@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import AuthGate from "./AuthGate.jsx";
 import { escucharColeccion, guardarColeccion, operarInventarioSeguro } from "./firestoreSync.js";
 import { puedeVer, vistaInicial } from "./roles.js";
-import { UBICACIONES, temaDeSesion } from "./utils/constants.js";
+import { UBICACIONES, temaDeSesion, sedesDeVista, nombreDeVista } from "./utils/constants.js";
 import { todayStr, round2, filtrarPorUbicacion, filtrarTransferencias, filtrarSolicitudes } from "./utils/format.js";
 import Sidebar from "./components/Sidebar.jsx";
 import Toast from "./components/Toast.jsx";
@@ -98,12 +98,28 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   // ubicación de su cuenta, sin excepción.
   const [ubicacionSeleccionada, setUbicacionSeleccionada] = useState("todas");
   const ubicacionVista = rol === "gerente" ? ubicacionSeleccionada : ubicacion;
-  // En modo consolidado no hay una sola sede a la cual atribuir una
-  // venta/movimiento/compra/transferencia/producción nueva — por eso
-  // las pantallas que registran operaciones se bloquean cuando esto es
-  // true (cada una lo explica con un aviso, en vez de desaparecer del
-  // menú sin explicación).
-  const esConsolidado = ubicacionVista === "todas";
+  // En modo consolidado — que ahora incluye tanto "Todas" como "ver una
+  // empresa completa" (ej. JL con sus 2 sedes) — no hay una sola sede a
+  // la cual atribuir una venta/movimiento/compra/transferencia/
+  // producción nueva. Por eso las pantallas que registran operaciones se
+  // bloquean cuando esto es true (cada una lo explica con un aviso, en
+  // vez de desaparecer del menú sin explicación). La regla es "más de
+  // una sede real detrás de esta vista", no un texto fijo como "todas" —
+  // así funciona igual para el consolidado y para cualquier vista de
+  // empresa, hoy y si mañana Sumaj Illari abre una segunda sede.
+  const esConsolidado = sedesDeVista(ubicacionVista).length > 1;
+  // Nombre legible de lo que se está viendo ahora mismo, para los avisos
+  // que explican por qué una pantalla está bloqueada — nunca dice "todas
+  // las sedes" si en realidad se está viendo solo una empresa.
+  const nombreVista = nombreDeVista(ubicacionVista);
+  // Las sedes reales detrás de la vista actual, con su nombre — la usa
+  // Compras para repartir una compra distribuida entre las sedes de la
+  // vista activa (las 3 en consolidado, las de una sola empresa en vista
+  // de empresa).
+  const sedesVista = React.useMemo(
+    () => sedesDeVista(ubicacionVista).map((id) => UBICACIONES.find((u) => u.id === id)),
+    [ubicacionVista]
+  );
 
   function confirmarNombreSesion(valor) {
     const limpio = (valor || "").trim() || nombre || "Sin nombre";
@@ -333,19 +349,20 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   // de la ubicación que se está VIENDO ahora (ubicacionVista) — no un
   // solo stock global.
   //
-  // En modo consolidado ("todas", solo gerente) no hay una sola
-  // ubicación: se SUMA el stock (y el stock mínimo) de las 3 sedes, y el
-  // costo unitario se promedia ponderado por cuánto stock aporta cada
-  // una — el mismo criterio que ya usan Compras y Transferencias para
-  // combinar costos de distinto origen.
+  // En modo consolidado (solo gerente — "Todas" o una empresa completa)
+  // no hay una sola ubicación: se SUMA el stock (y el stock mínimo) de
+  // las sedes que cubre la vista, y el costo unitario se promedia
+  // ponderado por cuánto stock aporta cada una — el mismo criterio que
+  // ya usan Compras y Transferencias para combinar costos de distinto
+  // origen.
   const productosCompletos = React.useMemo(() => {
     if (!productos || !inventarios) return productos;
     const modelosPorCodigo = Object.fromEntries((modelos || []).map((m) => [m.codigo, m]));
 
     return productos.map((p) => {
       let datosInventario;
-      if (ubicacionVista === "todas") {
-        const porSede = UBICACIONES.map((u) => datosEnUbicacion(p, u.id));
+      if (esConsolidado) {
+        const porSede = sedesDeVista(ubicacionVista).map((id) => datosEnUbicacion(p, id));
         const stockTotal = round2(porSede.reduce((s, d) => s + (d.stock || 0), 0));
         const hayStockMinimo = porSede.some((d) => d.stockMinimo != null);
         const stockMinimoTotal = hayStockMinimo ? round2(porSede.reduce((s, d) => s + (d.stockMinimo || 0), 0)) : null;
@@ -359,21 +376,25 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
     });
   }, [productos, modelos, inventariosPorClave, costosPorClave, ubicacionVista]);
 
-  // Cuánto dinero hay inmovilizado en stock, por sede — SIEMPRE las 3,
-  // sin importar qué se esté mirando (el Dashboard decide cuándo
-  // mostrar el desglose completo, ej. en consolidado). Solo suma
-  // productos con costo conocido; el conteo de sin-costo lo calcula el
-  // propio Dashboard sobre `productosCompletos`, que ya trae ese dato.
+  // Cuánto dinero hay inmovilizado en stock, por sede — de las sedes que
+  // cubre la vista actual (las 3 en consolidado, o solo las de la
+  // empresa que se está viendo). A propósito NO son siempre las 3: si la
+  // gerente está viendo "JL (todas sus sedes)", el desglose debe mostrar
+  // solo Planta y Tienda X — mostrar ahí la valorización de Sumaj Illari
+  // sería mezclar datos de una empresa que no está mirando. El Dashboard
+  // decide cuándo mostrar este desglose (ej. en consolidado o vista de
+  // empresa).
   const valorizacionPorSede = React.useMemo(() => {
     if (!productos || !inventarios) return [];
-    return UBICACIONES.map((u) => {
+    return sedesDeVista(ubicacionVista).map((id) => {
+      const u = UBICACIONES.find((x) => x.id === id) || { id, nombre: id };
       const valor = productos.reduce((s, p) => {
-        const d = datosEnUbicacion(p, u.id);
+        const d = datosEnUbicacion(p, id);
         return s + (d.costoUnitario != null ? (d.stock || 0) * d.costoUnitario : 0);
       }, 0);
-      return { ubicacion: u.id, nombre: u.nombre, valor: round2(valor) };
+      return { ubicacion: id, nombre: u.nombre, valor: round2(valor) };
     });
-  }, [productos, inventariosPorClave, costosPorClave]);
+  }, [productos, inventariosPorClave, costosPorClave, ubicacionVista]);
 
   // Versiones de ventas, movimientos, compras y transferencias filtradas
   // por la ubicación que se está VIENDO — para que, por ejemplo, una
@@ -397,7 +418,8 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   // que hay algo pendiente en algún lado sin tener que ir mirando sede
   // por sede.
   const solicitudesPendientesParaMi = React.useMemo(() => {
-    return (solicitudes || []).filter((s) => s.estado === "pendiente" && (ubicacionVista === "todas" || s.proveedor === ubicacionVista)).length;
+    const sedesVistaIds = new Set(sedesDeVista(ubicacionVista));
+    return (solicitudes || []).filter((s) => s.estado === "pendiente" && sedesVistaIds.has(s.proveedor)).length;
   }, [solicitudes, ubicacionVista]);
   // La auditoría no es una de las pantallas que pediste que siguieran el
   // selector explícitamente, pero como ahora cada registro SÍ guarda de
@@ -537,31 +559,31 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
       <Sidebar view={vistaSegura} setView={setView} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
-          {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} esConsolidado={esConsolidado} valorizacionPorSede={valorizacionPorSede} />}
+          {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} esConsolidado={esConsolidado} valorizacionPorSede={valorizacionPorSede} nombreVista={nombreVista} />}
           {vistaSegura === "productos" && (
-            <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} inventarios={inventarios} onSaveInventarios={persistInventarios} ubicacion={ubicacionVista} esConsolidado={esConsolidado} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} nombre={nombreSesion} />
+            <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} inventarios={inventarios} onSaveInventarios={persistInventarios} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} nombre={nombreSesion} />
           )}
           {vistaSegura === "ventas" && (
-            <Ventas productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
+            <Ventas productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} />
           )}
           {vistaSegura === "demanda" && <Demanda ventas={ventasUbicacion} productos={productosCompletos} />}
           {vistaSegura === "analisis" && <Analisis productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} />}
           {vistaSegura === "margenes" && <Margenes productos={productosCompletos} ventas={ventasUbicacion} />}
           {vistaSegura === "movimientos" && (
-            <Movimientos productos={productosCompletos} movimientos={movimientosUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
+            <Movimientos productos={productosCompletos} movimientos={movimientosUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} />
           )}
           {vistaSegura === "compras" && (
-            <Compras productos={productosCompletos} variantes={productos} movimientos={movimientosUbicacion} compras={comprasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
+            <Compras productos={productosCompletos} variantes={productos} movimientos={movimientosUbicacion} compras={comprasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} sedesVista={sedesVista} />
           )}
           {vistaSegura === "transferencias" && (
-            <Transferencias productos={productosCompletos} variantes={productos} inventarios={inventarios} transferencias={transferenciasUbicacion} solicitudes={solicitudesUbicacion} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
+            <Transferencias productos={productosCompletos} variantes={productos} inventarios={inventarios} transferencias={transferenciasUbicacion} solicitudes={solicitudesUbicacion} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} />
           )}
-          {vistaSegura === "auditoria" && <Auditoria auditoria={auditoriaUbicacion} esConsolidado={esConsolidado} />}
+          {vistaSegura === "auditoria" && <Auditoria auditoria={auditoriaUbicacion} esConsolidado={esConsolidado} nombreVista={nombreVista} />}
           {vistaSegura === "produccion" && (
-            <Produccion productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} onSaveInventarios={persistInventarios} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} nombre={nombreSesion} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
+            <Produccion productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} onSaveInventarios={persistInventarios} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} nombre={nombreSesion} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} />
           )}
           {vistaSegura === "nuevo" && (
-            <NuevoProducto productos={productos} modelos={modelos} onSaveModelos={persistModelos} onSaveInventarios={persistInventarios} inventarios={inventarios} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
+            <NuevoProducto productos={productos} modelos={modelos} onSaveModelos={persistModelos} onSaveInventarios={persistInventarios} inventarios={inventarios} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} />
           )}
         </div>
       </main>

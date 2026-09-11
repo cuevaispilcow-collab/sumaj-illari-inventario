@@ -4,11 +4,17 @@ import {
 } from "lucide-react";
 import Logo from "../Logo.jsx";
 import { puedeVer } from "../roles.js";
-import { temaDeSesion, UBICACIONES } from "../utils/constants.js";
+import { temaDeSesion, sedesPorEmpresa, claveVistaEmpresa } from "../utils/constants.js";
 
 export default function Sidebar({ view, setView, onExportClick, rol, ubicacion, ubicacionVista, onChangeUbicacionVista, cerrarSesion, nombreSesion, onCambiarNombre, solicitudesPendientes }) {
   const [abierto, setAbierto] = useState(false);
   const tema = temaDeSesion(ubicacionVista);
+  // Una empresa con más de una sede recibe una opción agrupada ("JL —
+  // todas sus sedes"); una empresa con una sola sede (Sumaj Illari, hoy)
+  // se muestra directo, sin duplicar la misma vista dos veces. Esto es
+  // automático — el día que Sumaj Illari sume una segunda sede, aparece
+  // agrupada sola, sin tocar este archivo.
+  const gruposEmpresa = sedesPorEmpresa();
   const tabsTodas = [
     { id: "dashboard", label: "Panel", icon: LayoutDashboard },
     { id: "productos", label: "Productos", icon: Package },
@@ -55,9 +61,20 @@ export default function Sidebar({ view, setView, onExportClick, rol, ubicacion, 
             className="w-full px-2.5 py-2 rounded-lg border border-stone-700 bg-stone-800 text-stone-100 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
           >
             <option value="todas">Todas (consolidado)</option>
-            {UBICACIONES.map((u) => (
-              <option key={u.id} value={u.id}>{u.nombre}</option>
-            ))}
+            {Object.entries(gruposEmpresa).map(([empresa, sedes]) =>
+              sedes.length > 1 ? (
+                <optgroup key={empresa} label={empresa}>
+                  <option value={claveVistaEmpresa(empresa)}>{empresa} (todas sus sedes)</option>
+                  {sedes.map((u) => (
+                    <option key={u.id} value={u.id}>{u.nombre}</option>
+                  ))}
+                </optgroup>
+              ) : (
+                sedes.map((u) => (
+                  <option key={u.id} value={u.id}>{u.nombre}</option>
+                ))
+              )
+            )}
           </select>
         </div>
       )}

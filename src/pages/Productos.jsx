@@ -8,7 +8,7 @@ import EmptyState from "../components/EmptyState.jsx";
 
 import { registrarAuditoria } from "../firestoreSync.js";
 
-export default function Productos({ productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, movimientos, ventas, onSave, showToast, setView, rol, ubicacion, esConsolidado, nombre: nombreUsuario }) {
+export default function Productos({ productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, movimientos, ventas, onSave, showToast, setView, rol, ubicacion, esConsolidado, nombreVista, nombre: nombreUsuario }) {
   const [q, setQ] = useState("");
   const [tipo, setTipo] = useState("todos");
   const [editingId, setEditingId] = useState(null);
@@ -282,6 +282,7 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
           onSaveInventarios={onSaveInventarios}
           ubicacion={ubicacion}
           esConsolidado={esConsolidado}
+          nombreVista={nombreVista}
         />
       )}
     </div>
@@ -289,7 +290,7 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
 }
 
 
-function EditarProductoModal({ producto, productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, ubicacion, esConsolidado, movimientos, ventas, onSave, showToast, onClose, nombreUsuario, rol }) {
+function EditarProductoModal({ producto, productos, variantes, modelos, onSaveModelos, inventarios, onSaveInventarios, ubicacion, esConsolidado, nombreVista, movimientos, ventas, onSave, showToast, onClose, nombreUsuario, rol }) {
   const [codigo, setCodigo] = useState(producto.codigo);
   const [categoria, setCategoria] = useState(producto.categoria);
   const [nombre, setNombre] = useState(producto.producto);
@@ -459,7 +460,7 @@ function EditarProductoModal({ producto, productos, variantes, modelos, onSaveMo
           )}
           {esConsolidado && (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Estás viendo el consolidado de todas las sedes — el stock y stock mínimo son por sede, así que no se pueden guardar desde acá. Elige una sede específica arriba para editarlos. Sí podés seguir eliminando el producto del catálogo.
+              Estás viendo {nombreVista} — el stock y stock mínimo son por sede, así que no se pueden guardar desde acá. Elige una sede específica arriba para editarlos. Sí podés seguir eliminando el producto del catálogo.
             </p>
           )}
           <div>

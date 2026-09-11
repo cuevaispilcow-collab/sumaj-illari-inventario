@@ -31,7 +31,7 @@ function stockEnUbicacion(varianteRaw, ubicacionId, inventarios) {
   return ubicacionId === "sumaj_illari" ? (varianteRaw.stock || 0) : 0;
 }
 
-export default function Transferencias({ productos, variantes, inventarios, transferencias, solicitudes, showToast, nombre, rol, ubicacion, esConsolidado }) {
+export default function Transferencias({ productos, variantes, inventarios, transferencias, solicitudes, showToast, nombre, rol, ubicacion, esConsolidado, nombreVista }) {
   const [productoId, setProductoId] = useState("");
   const [cantidad, setCantidad] = useState("");
   const [destino, setDestino] = useState("");
@@ -212,7 +212,7 @@ export default function Transferencias({ productos, variantes, inventarios, tran
 
       <div>
         <h3 className="text-sm font-semibold text-stone-600 mb-2">
-          Solicitudes {esConsolidado ? "(todas las sedes)" : `(${NOMBRE_UBICACION[ubicacion]})`}
+          Solicitudes {esConsolidado ? `(${nombreVista})` : `(${NOMBRE_UBICACION[ubicacion]})`}
         </h3>
         {historialSolicitudes.length === 0 ? (
           <EmptyState icon={Clock} title="Todavía no hay solicitudes" body="Cuando pidas producto a otra sede (o te lo pidan a vos) desde 'Consultar en otras sedes', va a aparecer acá." />
@@ -284,7 +284,7 @@ export default function Transferencias({ productos, variantes, inventarios, tran
 
       {esConsolidado ? (
         <div className="max-w-lg bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar una transferencia — en modo consolidado no hay un origen desde el cual enviar.
+          Estás viendo {nombreVista}. Elige una sede específica arriba (en el menú) para poder registrar una transferencia — en modo consolidado no hay un origen desde el cual enviar.
         </div>
       ) : (
       <div className="max-w-lg">
@@ -334,7 +334,7 @@ export default function Transferencias({ productos, variantes, inventarios, tran
       )}
 
       <div>
-        <h3 className="text-sm font-semibold text-stone-600 mb-2">Historial ({esConsolidado ? "todas las sedes" : NOMBRE_UBICACION[ubicacion]})</h3>
+        <h3 className="text-sm font-semibold text-stone-600 mb-2">Historial ({esConsolidado ? nombreVista : NOMBRE_UBICACION[ubicacion]})</h3>
         {historialTransferencias.length === 0 ? (
           <EmptyState icon={ArrowRightLeft} title="Todavía no hay transferencias" body="Acá vas a ver las transferencias enviadas y recibidas por esta ubicación." />
         ) : (

@@ -11,7 +11,7 @@ import MetricCard from "../components/MetricCard.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 import MovIcon from "../components/MovIcon.jsx";
 
-export default function Dashboard({ productos, movimientos, ventas, setView, esConsolidado, valorizacionPorSede }) {
+export default function Dashboard({ productos, movimientos, ventas, setView, esConsolidado, valorizacionPorSede, nombreVista }) {
   if (productos.length === 0) {
     return (
       <EmptyState
@@ -94,7 +94,7 @@ export default function Dashboard({ productos, movimientos, ventas, setView, esC
         )}
         <p className="text-3xl font-bold text-emerald-400">{formatSoles(valorInventario)}</p>
         <p className="text-xs text-stone-500 mt-1">
-          {esConsolidado ? "Total de las 3 sedes (Sumaj Illari + JL)" : "En esta sede"}
+          {esConsolidado ? `Total de ${nombreVista}` : "En esta sede"}
         </p>
         {esConsolidado && valorizacionPorSede && valorizacionPorSede.length > 0 && (
           <div className="mt-3 pt-3 border-t border-stone-800 space-y-1.5">

@@ -10,7 +10,7 @@ import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js"
 
 const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
 
-export default function Compras({ productos, variantes, movimientos, compras, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado }) {
+export default function Compras({ productos, variantes, movimientos, compras, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado, nombreVista, sedesVista }) {
   const [tab, setTab] = useState("registro"); // "registro" | "pareto" | "abc"
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
@@ -34,7 +34,7 @@ export default function Compras({ productos, variantes, movimientos, compras, on
   // y si la suma coincide con la cantidad total declarada — se recalcula
   // en cada tecleo para que el error se vea ANTES de intentar guardar.
   const totalDistribuido = Number(cantidadTotal) || 0;
-  const repartoEntradas = UBICACIONES
+  const repartoEntradas = (sedesVista || [])
     .map((u) => [u.id, Number(cantidadesPorSede[u.id]) || 0])
     .filter(([, c]) => c > 0);
   const sumaRepartida = round2(repartoEntradas.reduce((s, [, c]) => s + c, 0));
@@ -230,7 +230,7 @@ export default function Compras({ productos, variantes, movimientos, compras, on
 
       showToast("success", `Compra distribuida registrada entre ${repartoEntradas.length} sede${repartoEntradas.length !== 1 ? "s" : ""}.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "COMPRA", ubicacion: "todas",
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "COMPRA", ubicacion,
         detalle: `Compra distribuida de ${totalDistribuido} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""} a ${proveedor.trim()} — ${repartoEntradas.map(([s, c]) => `${NOMBRE_UBICACION[s]}: ${c}`).join(", ")} — S/ ${totalCalcDistribuido.toFixed(2)}`,
       }).catch(() => {});
       reset();
@@ -368,7 +368,7 @@ export default function Compras({ productos, variantes, movimientos, compras, on
             <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
               <div className="bg-stone-50 px-4 py-2.5 border-b border-stone-200">
                 <p className="text-sm text-stone-600">
-                  Los productos marcados en rojo (zona A) concentran aproximadamente el <strong>80% del valor hoy inmovilizado en inventario</strong> ({ubicacion === "todas" ? "consolidado" : "esta sede"}). Son los que más conviene vigilar de cerca.
+                  Los productos marcados en rojo (zona A) concentran aproximadamente el <strong>80% del valor hoy inmovilizado en inventario</strong> ({esConsolidado ? nombreVista : "esta sede"}). Son los que más conviene vigilar de cerca.
                 </p>
               </div>
               <div className="overflow-x-auto">
@@ -462,7 +462,7 @@ export default function Compras({ productos, variantes, movimientos, compras, on
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Reparto por sede</label>
                   <div className="space-y-1.5">
-                    {UBICACIONES.map((u) => (
+                    {(sedesVista || []).map((u) => (
                       <div key={u.id} className="flex items-center justify-between gap-2">
                         <span className="text-sm text-stone-600">{u.nombre}</span>
                         <input type="number" min="0" value={cantidadesPorSede[u.id] || ""}

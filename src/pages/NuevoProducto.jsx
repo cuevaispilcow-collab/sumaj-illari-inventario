@@ -7,7 +7,7 @@ import { todayStr } from "../utils/format.js";
 
 import { registrarAuditoria } from "../firestoreSync.js";
 
-export default function NuevoProducto({ productos, modelos, onSaveModelos, onSaveInventarios, inventarios, movimientos, onSave, showToast, setView, nombre, rol, ubicacion, esConsolidado }) {
+export default function NuevoProducto({ productos, modelos, onSaveModelos, onSaveInventarios, inventarios, movimientos, onSave, showToast, setView, nombre, rol, ubicacion, esConsolidado, nombreVista }) {
   const [tipo, setTipo] = useState("Materia prima");
   const [codigo, setCodigo] = useState("");
   const [categoria, setCategoria] = useState("");
@@ -102,7 +102,7 @@ export default function NuevoProducto({ productos, modelos, onSaveModelos, onSav
   if (esConsolidado) {
     return (
       <div className="max-w-lg bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-        Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar un producto nuevo — su stock inicial necesita una sede concreta.
+        Estás viendo {nombreVista}. Elige una sede específica arriba (en el menú) para poder registrar un producto nuevo — su stock inicial necesita una sede concreta.
       </div>
     );
   }

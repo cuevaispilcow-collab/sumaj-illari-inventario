@@ -10,7 +10,7 @@ import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js"
 
 const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
 
-export default function Ventas({ productos, movimientos, ventas, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado }) {
+export default function Ventas({ productos, movimientos, ventas, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado, nombreVista }) {
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
   const [productoId, setProductoId] = useState("");
@@ -144,7 +144,7 @@ export default function Ventas({ productos, movimientos, ventas, onSave, onSaveI
 
       {showForm && esConsolidado && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar una venta — en modo consolidado no hay a dónde atribuirla.
+          Estás viendo {nombreVista}. Elige una sede específica arriba (en el menú) para poder registrar una venta — en modo consolidado no hay a dónde atribuirla.
         </div>
       )}
       {showForm && !esConsolidado && (
