@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import {
   Plus, XCircle, Trash2, ClipboardList, CheckCircle2, AlertTriangle,
 } from "lucide-react";
-import { todayStr, round2, formatSoles, formatFecha, filtrarPorUbicacion } from "../utils/format.js";
+import { todayStr, round2, formatSoles, formatFecha, filtrarPorUbicacion, promedioPonderado } from "../utils/format.js";
 import { UBICACIONES } from "../utils/constants.js";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
@@ -296,9 +296,7 @@ function ProducirForm({ productos, movimientos, producciones, terminados, onSave
         const costoTotalReal = round2(consumoReal.reduce((s, c) => s + (c.costoUnitarioMP || 0) * c.necesario, 0));
         const costoUnitarioReal = cant > 0 ? round2(costoTotalReal / cant) : 0;
         const invTerminado = leerInv(terminadoId);
-        const nuevoCosto = invTerminado.costoUnitario != null && invTerminado.stock > 0
-          ? round2((invTerminado.stock * invTerminado.costoUnitario + cant * costoUnitarioReal) / (invTerminado.stock + cant))
-          : costoUnitarioReal;
+        const nuevoCosto = promedioPonderado(invTerminado.stock, invTerminado.costoUnitario, cant, costoUnitarioReal);
         costoFinal = nuevoCosto;
 
         // Se aplican los cambios sobre los registros de inventario de esta
@@ -635,9 +633,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
         const costoTotalReal = round2(consumo.reduce((s, c) => s + (c.costoUnitarioMP || 0) * c.necesario, 0));
         const costoUnitarioReal = pedido.cantidad > 0 ? round2(costoTotalReal / pedido.cantidad) : 0;
         const invTerminado = leerInv(pedido.productoId);
-        const nuevoCostoPromedio = invTerminado.costoUnitario != null && invTerminado.stock > 0
-          ? round2((invTerminado.stock * invTerminado.costoUnitario + pedido.cantidad * costoUnitarioReal) / (invTerminado.stock + pedido.cantidad))
-          : costoUnitarioReal;
+        const nuevoCostoPromedio = promedioPonderado(invTerminado.stock, invTerminado.costoUnitario, pedido.cantidad, costoUnitarioReal);
 
         // El producto terminado se fabrica y se entrega en el acto: su
         // stock sube y baja en el mismo movimiento, así que no cambia —

@@ -551,7 +551,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
             <Movimientos productos={productosCompletos} movimientos={movimientosUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
           )}
           {vistaSegura === "compras" && (
-            <Compras productos={productosCompletos} movimientos={movimientosUbicacion} compras={comprasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
+            <Compras productos={productosCompletos} variantes={productos} movimientos={movimientosUbicacion} compras={comprasUbicacion} onSave={persist} onSaveInventarios={persistInventarios} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />
           )}
           {vistaSegura === "transferencias" && (
             <Transferencias productos={productosCompletos} variantes={productos} inventarios={inventarios} transferencias={transferenciasUbicacion} solicitudes={solicitudesUbicacion} showToast={showToast} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} />

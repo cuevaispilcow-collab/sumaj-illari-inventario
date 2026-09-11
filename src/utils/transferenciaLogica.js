@@ -1,4 +1,4 @@
-import { round2, todayStr } from "./format.js";
+import { round2, todayStr, promedioPonderado } from "./format.js";
 import { UBICACIONES } from "./constants.js";
 
 const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
@@ -57,9 +57,7 @@ export function calcularTransferencia({ inventariosActuales, costosActuales, var
   const costoDestinoBase = destino === "sumaj_illari" ? (varianteRaw.costoUnitario ?? null) : null;
   const costoDestinoActual = costoDestinoActualReg ? costoDestinoActualReg.costoUnitario : costoDestinoBase;
 
-  const nuevoCostoDestino = costoDestinoActual != null && stockDestino > 0
-    ? round2((stockDestino * costoDestinoActual + cantidad * (costoOrigen ?? 0)) / (stockDestino + cantidad))
-    : costoOrigen;
+  const nuevoCostoDestino = promedioPonderado(stockDestino, costoDestinoActual, cantidad, costoOrigen ?? 0);
 
   const nuevoInvOrigen = {
     id: claveOrigen, varianteId: productoId, ubicacion: origen,

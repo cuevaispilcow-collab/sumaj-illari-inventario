@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import {
   Plus, XCircle, Truck, BarChart3, AlertTriangle, PieChart,
 } from "lucide-react";
-import { todayStr, round2, formatSoles, formatFecha, calcularPareto } from "../utils/format.js";
+import { todayStr, round2, formatSoles, formatFecha, calcularPareto, promedioPonderado } from "../utils/format.js";
 import { UBICACIONES } from "../utils/constants.js";
 import EmptyState from "../components/EmptyState.jsx";
 import SelectorProducto from "../components/SelectorProducto.jsx";
@@ -10,8 +10,8 @@ import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js"
 
 const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
 
-export default function Compras({ productos, movimientos, compras, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado }) {
-  const [tab, setTab] = useState("registro"); // "registro" | "pareto"
+export default function Compras({ productos, variantes, movimientos, compras, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado }) {
+  const [tab, setTab] = useState("registro"); // "registro" | "pareto" | "abc"
   const [showForm, setShowForm] = useState(false);
   const [fecha, setFecha] = useState(todayStr());
   const [productoId, setProductoId] = useState("");
@@ -21,14 +21,29 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
   const [proveedor, setProveedor] = useState("");
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
+  // Solo se usan en modo consolidado (compra distribuida entre sedes).
+  const [cantidadTotal, setCantidadTotal] = useState("");
+  const [cantidadesPorSede, setCantidadesPorSede] = useState({});
 
   const producto = productos.find((p) => p.id === productoId);
   const cant = Number(cantidad) || 0;
   const costo = Number(costoUnitario) || 0;
   const totalCalc = round2(cant * costo);
 
+  // Reparto: cuánto se lleva cada sede (solo las que tienen cantidad > 0),
+  // y si la suma coincide con la cantidad total declarada — se recalcula
+  // en cada tecleo para que el error se vea ANTES de intentar guardar.
+  const totalDistribuido = Number(cantidadTotal) || 0;
+  const repartoEntradas = UBICACIONES
+    .map((u) => [u.id, Number(cantidadesPorSede[u.id]) || 0])
+    .filter(([, c]) => c > 0);
+  const sumaRepartida = round2(repartoEntradas.reduce((s, [, c]) => s + c, 0));
+  const repartoCuadra = totalDistribuido > 0 && sumaRepartida === round2(totalDistribuido);
+  const totalCalcDistribuido = round2(totalDistribuido * costo);
+
   function reset() {
     setProductoId(""); setCantidad(""); setCostoUnitario(""); setPrecioMinimo(""); setProveedor(""); setError("");
+    setCantidadTotal(""); setCantidadesPorSede({});
   }
 
   async function handleSubmit(e) {
@@ -62,9 +77,7 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
         const stockAnterior = invActual ? invActual.stock : (producto?.stock || 0);
         const costoActual = actuales.costos.find((c) => c.id === claveInventario);
         const costoAnterior = costoActual ? costoActual.costoUnitario : (producto?.costoUnitario ?? null);
-        const nuevoCosto = costoAnterior != null && stockAnterior > 0
-          ? round2((stockAnterior * costoAnterior + cant * costo) / (stockAnterior + cant))
-          : costo;
+        const nuevoCosto = promedioPonderado(stockAnterior, costoAnterior, cant, costo);
         costoFinal = nuevoCosto;
 
         const nuevoInv = {
@@ -117,6 +130,113 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
       setShowForm(false);
     } catch (err) {
       setError("No se pudo guardar la compra: " + (err && err.message ? err.message : String(err)));
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  // Compra distribuida (modo consolidado): la gerente compra a un
+  // proveedor y reparte la mercadería directamente entre las 3 sedes,
+  // sin pasar por el almacén de una sola — así que no corresponde
+  // registrar transferencias que físicamente nunca ocurrieron. Se
+  // registra la factura una sola vez (producto, costo, proveedor) y se
+  // indica cuánto va a cada sede; el sistema crea el ingreso directo en
+  // cada una, en una sola operación atómica: entra en todas o no entra
+  // en ninguna.
+  async function handleSubmitDistribuido(e) {
+    e.preventDefault();
+    if (enviando) return;
+    if (!productoId) return setError("Selecciona un producto.");
+    if (!producto) return setError("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
+    if (costoUnitario === "" || costo < 0) return setError("Ingresa un costo unitario válido.");
+    if (!proveedor.trim()) return setError("Ingresa el nombre del proveedor.");
+    if (!cantidadTotal || totalDistribuido <= 0) return setError("Ingresa la cantidad total comprada.");
+    if (repartoEntradas.length === 0) return setError("Repartí al menos una unidad a alguna sede.");
+    if (!repartoCuadra) {
+      return setError(`El reparto (${sumaRepartida}) no coincide con la cantidad total (${totalDistribuido}).`);
+    }
+    const pMin = precioMinimo.trim() === "" ? null : Number(precioMinimo);
+    if (precioMinimo.trim() !== "" && (isNaN(pMin) || pMin < 0)) {
+      return setError("El precio mínimo de venta debe ser un número válido.");
+    }
+
+    setEnviando(true);
+    setError("");
+    try {
+      const colecciones = pMin != null
+        ? ["inventarios", "costos", "compras", "movimientos", "productos"]
+        : ["inventarios", "costos", "compras", "movimientos"];
+      await operarInventarioSeguro(colecciones, (actuales) => {
+        const varianteRaw = (variantes || []).find((v) => v.id === productoId);
+        if (!varianteRaw) throw new Error("Ese producto ya no existe en el catálogo. Actualiza la página e inténtalo de nuevo.");
+
+        const ahora = Date.now();
+        const loteId = `L${ahora}`;
+        const reparto = repartoEntradas.map(([sedeId, c]) => ({ ubicacion: sedeId, cantidad: c }));
+        const nombreProd = `${producto.producto}${producto.talla !== "Única" ? " - " + producto.talla : ""}`;
+
+        let nuevosInventarios = actuales.inventarios;
+        let nuevosCostos = actuales.costos;
+        const nuevasCompras = [];
+        const nuevosMovimientos = [];
+
+        for (const [sedeId, c] of repartoEntradas) {
+          const clave = `${productoId}__${sedeId}`;
+          const invActual = nuevosInventarios.find((i) => i.id === clave);
+          const stockBase = sedeId === "sumaj_illari" ? (varianteRaw.stock || 0) : 0;
+          const stockAnterior = invActual ? invActual.stock : stockBase;
+          const costoActual = nuevosCostos.find((cc) => cc.id === clave);
+          const costoBase = sedeId === "sumaj_illari" ? (varianteRaw.costoUnitario ?? null) : null;
+          const costoAnterior = costoActual ? costoActual.costoUnitario : costoBase;
+          const nuevoCosto = promedioPonderado(stockAnterior, costoAnterior, c, costo);
+
+          const nuevoInv = {
+            id: clave, varianteId: productoId, ubicacion: sedeId,
+            stock: round2(stockAnterior + c),
+            stockMinimo: invActual ? invActual.stockMinimo : (sedeId === "sumaj_illari" ? (varianteRaw.stockMinimo ?? null) : null),
+            fechaIncorporacion: invActual ? invActual.fechaIncorporacion : todayStr(),
+          };
+          nuevosInventarios = invActual
+            ? nuevosInventarios.map((i) => (i.id === clave ? nuevoInv : i))
+            : [...nuevosInventarios, nuevoInv];
+
+          const nuevoCostoReg = { id: clave, varianteId: productoId, ubicacion: sedeId, costoUnitario: nuevoCosto };
+          nuevosCostos = costoActual
+            ? nuevosCostos.map((cc) => (cc.id === clave ? nuevoCostoReg : cc))
+            : [...nuevosCostos, nuevoCostoReg];
+
+          nuevasCompras.push({
+            id: `C${ahora}-${sedeId}`, loteId, distribuida: true, reparto,
+            fecha, productoId, codigo: producto.codigo, producto: producto.producto, talla: producto.talla, ubicacion: sedeId,
+            tipo: producto.tipo, cantidad: c, costoUnitario: costo, proveedor: proveedor.trim(), total: round2(c * costo),
+          });
+          nuevosMovimientos.push({
+            id: `M${ahora}-${sedeId}`, fecha, tipo: "ENTRADA", productoId, ubicacion: sedeId,
+            productoNombre: nombreProd, cantidad: c, motivo: `Compra distribuida a ${proveedor.trim()}`,
+          });
+        }
+
+        const resultado = {
+          inventarios: nuevosInventarios,
+          costos: nuevosCostos,
+          compras: [...actuales.compras, ...nuevasCompras],
+          movimientos: [...actuales.movimientos, ...nuevosMovimientos],
+        };
+        if (pMin != null) {
+          resultado.productos = actuales.productos.map((p) => (p.id === productoId ? { ...p, precioMinimo: pMin } : p));
+        }
+        return resultado;
+      });
+
+      showToast("success", `Compra distribuida registrada entre ${repartoEntradas.length} sede${repartoEntradas.length !== 1 ? "s" : ""}.`);
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "COMPRA", ubicacion: "todas",
+        detalle: `Compra distribuida de ${totalDistribuido} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""} a ${proveedor.trim()} — ${repartoEntradas.map(([s, c]) => `${NOMBRE_UBICACION[s]}: ${c}`).join(", ")} — S/ ${totalCalcDistribuido.toFixed(2)}`,
+      }).catch(() => {});
+      reset();
+      setShowForm(false);
+    } catch (err) {
+      setError("No se pudo guardar la compra distribuida: " + (err && err.message ? err.message : String(err)));
     } finally {
       setEnviando(false);
     }
@@ -286,12 +406,7 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
         </>
       ) : (
       <>
-      {showForm && esConsolidado && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-          Estás viendo el consolidado de todas las sedes. Elige una sede específica arriba (en el menú) para poder registrar una compra — en modo consolidado no hay a dónde atribuirla.
-        </div>
-      )}
-      {showForm && !esConsolidado && (
+      {showForm && (
         <div className="bg-white rounded-lg border border-stone-200 shadow-sm p-4 space-y-3">
           {productos.length === 0 ? (
             <p className="text-sm text-stone-500">
@@ -299,6 +414,11 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
             </p>
           ) : (
             <>
+              {esConsolidado && (
+                <p className="text-xs text-stone-500 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2">
+                  Estás en modo consolidado: esta compra se reparte directamente entre las sedes que indiques abajo — no genera transferencias.
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-stone-600 mb-1">Fecha</label>
@@ -326,8 +446,9 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-stone-600 mb-1">Cantidad comprada</label>
-                  <input type="number" min="1" value={cantidad} onChange={(e) => setCantidad(e.target.value)} placeholder="0"
+                  <label className="block text-xs font-medium text-stone-600 mb-1">{esConsolidado ? "Cantidad total comprada" : "Cantidad comprada"}</label>
+                  <input type="number" min="0" value={esConsolidado ? cantidadTotal : cantidad}
+                    onChange={(e) => (esConsolidado ? setCantidadTotal(e.target.value) : setCantidad(e.target.value))} placeholder="0"
                     className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
                 </div>
                 <div>
@@ -336,6 +457,26 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
                     className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
                 </div>
               </div>
+
+              {esConsolidado && (
+                <div>
+                  <label className="block text-xs font-medium text-stone-600 mb-1">Reparto por sede</label>
+                  <div className="space-y-1.5">
+                    {UBICACIONES.map((u) => (
+                      <div key={u.id} className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-stone-600">{u.nombre}</span>
+                        <input type="number" min="0" value={cantidadesPorSede[u.id] || ""}
+                          onChange={(e) => setCantidadesPorSede({ ...cantidadesPorSede, [u.id]: e.target.value })} placeholder="0"
+                          className="w-24 px-2 py-1.5 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white text-right focus:outline-none focus:ring-2 focus:ring-red-500" />
+                      </div>
+                    ))}
+                  </div>
+                  <p className={`text-xs mt-1.5 font-medium ${repartoCuadra ? "text-teal-600" : "text-amber-600"}`}>
+                    Repartido: {sumaRepartida} de {totalDistribuido || 0}
+                    {!repartoCuadra && totalDistribuido > 0 ? ` (faltan ${round2(totalDistribuido - sumaRepartida)})` : ""}
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-medium text-stone-600 mb-1">Precio mínimo de venta (S/, opcional)</label>
@@ -346,7 +487,7 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
 
               <div className="flex items-center justify-between bg-stone-50 rounded-lg px-3 py-2">
                 <span className="text-sm text-stone-600">Total de la compra</span>
-                <span className="text-lg font-semibold text-stone-900">{formatSoles(totalCalc)}</span>
+                <span className="text-lg font-semibold text-stone-900">{formatSoles(esConsolidado ? totalCalcDistribuido : totalCalc)}</span>
               </div>
 
               {error && (
@@ -355,9 +496,9 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
                 </p>
               )}
 
-              <button type="button" onClick={handleSubmit} disabled={enviando}
+              <button type="button" onClick={esConsolidado ? handleSubmitDistribuido : handleSubmit} disabled={enviando}
                 className="w-full py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition">
-                {enviando ? "Guardando..." : "Guardar compra"}
+                {enviando ? "Guardando..." : esConsolidado ? "Guardar compra distribuida" : "Guardar compra"}
               </button>
             </>
           )}
@@ -395,6 +536,14 @@ export default function Compras({ productos, movimientos, compras, onSave, onSav
                           <td className="px-3 py-1.5 text-stone-800">
                             {c.producto}{c.talla !== "Única" ? ` - ${c.talla}` : ""}
                             <span className="text-stone-400 font-mono text-xs ml-1.5">{c.codigo}</span>
+                            {c.distribuida && (
+                              <>
+                                <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 align-middle">Distribuida</span>
+                                <p className="text-xs text-stone-400 mt-0.5">
+                                  Reparto: {c.reparto.map((r) => `${NOMBRE_UBICACION[r.ubicacion] || r.ubicacion}: ${r.cantidad}`).join(" · ")}
+                                </p>
+                              </>
+                            )}
                           </td>
                           <td className="px-3 py-1.5 text-stone-600">{c.proveedor}</td>
                           <td className="px-3 py-1.5 text-right text-stone-700">{c.cantidad}</td>

@@ -72,3 +72,17 @@ export function calcularPareto(items) {
   });
 }
 
+// El promedio ponderado que se usa cada vez que ENTRA stock a un costo
+// distinto al que ya había (comprar, recibir una transferencia, producir):
+// si ya había stock con costo conocido, se promedia con lo nuevo; si no
+// había nada (o no se conocía el costo), el costo nuevo pasa a ser
+// directamente el costo de lo que entra. Una sola fórmula para Compras,
+// Producción y Transferencias, para que el día que haya que ajustarla
+// (ej. al incorporar costeo con mano de obra e indirectos) no haga falta
+// acordarse de actualizarla en varios lugares a la vez.
+export function promedioPonderado(stockActual, costoActual, cantidadEntrante, costoEntrante) {
+  return costoActual != null && stockActual > 0
+    ? round2((stockActual * costoActual + cantidadEntrante * costoEntrante) / (stockActual + cantidadEntrante))
+    : costoEntrante;
+}
+
