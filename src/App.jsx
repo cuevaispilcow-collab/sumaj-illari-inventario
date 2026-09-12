@@ -337,19 +337,22 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   );
 
   // Cuánto stock/costo/stock mínimo tiene UN producto en UNA sede
-  // puntual. Si un producto todavía no tiene un registro de inventario
-  // para esa sede (ej. porque se creó antes de separar por ubicación),
-  // se usa su stock antiguo como el de "sumaj_illari" — así no se
-  // pierde nada de lo que ya existía.
+  // puntual — se lee siempre de "inventarios"/"costos", sin excepción
+  // por sede. (Antes, si no había registro para "sumaj_illari", se
+  // usaba el stock/costo viejo guardado directo en el producto — un
+  // "compat" de cuando el sistema era de una sola sede. Ya no aplica:
+  // el catálogo se reconstruyó desde cero, así que cualquier producto
+  // sin registro de inventario simplemente no tiene stock todavía, en
+  // cualquier sede por igual.) "precioMinimo" es la excepción real, no
+  // por compatibilidad: es compartido entre sedes a propósito (un
+  // precio mínimo de venta no depende de dónde se venda), por eso sigue
+  // leyendo del producto sin importar la sede.
   function datosEnUbicacion(p, ubic) {
     const inv = inventariosPorClave[`${p.id}__${ubic}`];
     const costoReg = costosPorClave[`${p.id}__${ubic}`];
-    const costoUnitario = costoReg ? costoReg.costoUnitario : (ubic === "sumaj_illari" ? (p.costoUnitario ?? null) : null);
+    const costoUnitario = costoReg ? costoReg.costoUnitario : null;
     if (inv) {
       return { stock: inv.stock || 0, stockMinimo: inv.stockMinimo, costoUnitario, fechaIncorporacion: inv.fechaIncorporacion, precioMinimo: inv.precioMinimo != null ? inv.precioMinimo : p.precioMinimo };
-    }
-    if (ubic === "sumaj_illari") {
-      return { stock: p.stock || 0, stockMinimo: p.stockMinimo, costoUnitario, fechaIncorporacion: p.fechaIncorporacion, precioMinimo: p.precioMinimo };
     }
     return { stock: 0, stockMinimo: null, costoUnitario, fechaIncorporacion: null, precioMinimo: p.precioMinimo };
   }
@@ -464,11 +467,8 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
         // (nunca llegó ahí por compra, transferencia o compra
         // distribuida) NO cuenta como "sin stock" — simplemente no es
         // parte del surtido de esa sede todavía, no es que se haya
-        // acabado. Sumaj Illari es la excepción: los productos de antes
-        // del multi-sede viven ahí sin un registro aparte (ver el
-        // "fallback" de datosEnUbicacion), así que sí es una sede real
-        // para este chequeo aunque no tenga un registro explícito.
-        const tieneRegistro = sedeId === "sumaj_illari" || !!inventariosPorClave[`${p.id}__${sedeId}`];
+        // acabado. Esto aplica igual a las 3 sedes.
+        const tieneRegistro = !!inventariosPorClave[`${p.id}__${sedeId}`];
         if (!tieneRegistro) continue;
         const d = datosEnUbicacion(p, sedeId);
         const info = modelosPorCodigo[p.codigo] || {};

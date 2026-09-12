@@ -23,10 +23,10 @@ const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nomb
 //
 // `producto`: el objeto con nombre/talla/codigo/unidad (esos datos no
 // cambian según la ubicación, así que sirve cualquier versión ya
-// cargada en pantalla). `variantes`: el catálogo crudo, para el stock
-// antiguo de "sumaj_illari" de antes de separar por ubicación — NO se
-// usa el stock/costo de `producto` porque puede venir de una ubicación
-// distinta a `origen` (ej. la gerente mirando el consolidado).
+// cargada en pantalla) — NO se usa su stock/costo porque puede venir de
+// una ubicación distinta a `origen` (ej. la gerente mirando el
+// consolidado). `variantes`: el catálogo crudo, solo para confirmar que
+// el producto todavía exista antes de mover nada.
 export function calcularTransferencia({ inventariosActuales, costosActuales, variantes, producto, productoId, cantidad, origen, destino, usuario }) {
   const varianteRaw = (variantes || []).find((v) => v.id === productoId);
   if (!producto || !varianteRaw) {
@@ -36,34 +36,34 @@ export function calcularTransferencia({ inventariosActuales, costosActuales, var
   const claveOrigen = `${productoId}__${origen}`;
   const claveDestino = `${productoId}__${destino}`;
 
+  // Si no hay registro de inventario todavía para esta sede (ej. este
+  // producto nunca llegó ahí), se parte de cero — sin excepción por
+  // sede. (Antes, Sumaj Illari tenía un "compat" que usaba el stock
+  // viejo guardado directo en el producto, de cuando el sistema era de
+  // una sola sede. Ya no aplica: el catálogo se reconstruyó desde cero.)
   const invOrigenActual = inventariosActuales.find((i) => i.id === claveOrigen);
-  const stockOrigenBase = origen === "sumaj_illari" ? (varianteRaw.stock || 0) : 0;
-  const stockOrigen = invOrigenActual ? invOrigenActual.stock : stockOrigenBase;
+  const stockOrigen = invOrigenActual ? invOrigenActual.stock : 0;
   if (stockOrigen < cantidad) {
     throw new Error(`Stock insuficiente. Ahora mismo solo hay ${stockOrigen} ${producto.unidad || ""} en ${NOMBRE_UBICACION[origen] || origen} (puede que alguien más lo haya movido).`);
   }
   const costoOrigenActual = costosActuales.find((c) => c.id === claveOrigen);
-  const costoOrigenBase = origen === "sumaj_illari" ? (varianteRaw.costoUnitario ?? null) : null;
-  const costoOrigen = costoOrigenActual ? costoOrigenActual.costoUnitario : costoOrigenBase;
-  const stockMinimoOrigenBase = origen === "sumaj_illari" ? (varianteRaw.stockMinimo ?? null) : null;
+  const costoOrigen = costoOrigenActual ? costoOrigenActual.costoUnitario : null;
 
   // El destino puede no tener registro de inventario todavía para este
   // producto (ej. la primera vez que Tienda X recibe algo).
   const invDestinoActual = inventariosActuales.find((i) => i.id === claveDestino);
-  const stockDestinoBase = destino === "sumaj_illari" ? (varianteRaw.stock || 0) : 0;
-  const stockDestino = invDestinoActual ? invDestinoActual.stock : stockDestinoBase;
+  const stockDestino = invDestinoActual ? invDestinoActual.stock : 0;
 
   const costoDestinoActualReg = costosActuales.find((c) => c.id === claveDestino);
-  const costoDestinoBase = destino === "sumaj_illari" ? (varianteRaw.costoUnitario ?? null) : null;
-  const costoDestinoActual = costoDestinoActualReg ? costoDestinoActualReg.costoUnitario : costoDestinoBase;
+  const costoDestinoActual = costoDestinoActualReg ? costoDestinoActualReg.costoUnitario : null;
 
   const nuevoCostoDestino = promedioPonderado(stockDestino, costoDestinoActual, cantidad, costoOrigen ?? 0);
 
   const nuevoInvOrigen = {
     id: claveOrigen, varianteId: productoId, ubicacion: origen,
     stock: round2(stockOrigen - cantidad),
-    stockMinimo: invOrigenActual ? invOrigenActual.stockMinimo : stockMinimoOrigenBase,
-    fechaIncorporacion: invOrigenActual ? invOrigenActual.fechaIncorporacion : (varianteRaw.fechaIncorporacion || todayStr()),
+    stockMinimo: invOrigenActual ? invOrigenActual.stockMinimo : null,
+    fechaIncorporacion: invOrigenActual ? invOrigenActual.fechaIncorporacion : todayStr(),
   };
   const nuevoInvDestino = {
     id: claveDestino, varianteId: productoId, ubicacion: destino,

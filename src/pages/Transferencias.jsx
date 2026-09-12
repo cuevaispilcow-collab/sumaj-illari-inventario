@@ -19,16 +19,11 @@ const ETIQUETA_ESTADO = {
 };
 
 // Cuánto stock tiene un producto en una ubicación específica, para
-// ubicaciones que NO son la de quien está usando la app ahora mismo
-// (por eso necesita el producto "crudo" del catálogo, con su stock
-// antiguo de antes de separar por ubicación — ver App.jsx →
-// productosCompletos, que aplica exactamente el mismo criterio pero
-// para la ubicación de quien mira la pantalla).
+// ubicaciones que NO son la de quien está usando la app ahora mismo.
 function stockEnUbicacion(varianteRaw, ubicacionId, inventarios) {
   if (!varianteRaw) return 0;
   const inv = (inventarios || []).find((i) => i.id === `${varianteRaw.id}__${ubicacionId}`);
-  if (inv) return inv.stock || 0;
-  return ubicacionId === "sumaj_illari" ? (varianteRaw.stock || 0) : 0;
+  return inv ? inv.stock || 0 : 0;
 }
 
 export default function Transferencias({ productos, variantes, inventarios, transferencias, solicitudes, showToast, nombre, rol, ubicacion, esConsolidado, nombreVista }) {

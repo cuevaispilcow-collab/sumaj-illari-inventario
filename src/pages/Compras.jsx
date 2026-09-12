@@ -180,20 +180,21 @@ export default function Compras({ productos, variantes, movimientos, compras, on
         const nuevasCompras = [];
         const nuevosMovimientos = [];
 
+        // Si no hay registro de inventario todavía para una sede (ej.
+        // esta sede nunca había recibido este producto), se parte de
+        // cero — sin excepción por sede.
         for (const [sedeId, c] of repartoEntradas) {
           const clave = `${productoId}__${sedeId}`;
           const invActual = nuevosInventarios.find((i) => i.id === clave);
-          const stockBase = sedeId === "sumaj_illari" ? (varianteRaw.stock || 0) : 0;
-          const stockAnterior = invActual ? invActual.stock : stockBase;
+          const stockAnterior = invActual ? invActual.stock : 0;
           const costoActual = nuevosCostos.find((cc) => cc.id === clave);
-          const costoBase = sedeId === "sumaj_illari" ? (varianteRaw.costoUnitario ?? null) : null;
-          const costoAnterior = costoActual ? costoActual.costoUnitario : costoBase;
+          const costoAnterior = costoActual ? costoActual.costoUnitario : null;
           const nuevoCosto = promedioPonderado(stockAnterior, costoAnterior, c, costo);
 
           const nuevoInv = {
             id: clave, varianteId: productoId, ubicacion: sedeId,
             stock: round2(stockAnterior + c),
-            stockMinimo: invActual ? invActual.stockMinimo : (sedeId === "sumaj_illari" ? (varianteRaw.stockMinimo ?? null) : null),
+            stockMinimo: invActual ? invActual.stockMinimo : null,
             fechaIncorporacion: invActual ? invActual.fechaIncorporacion : todayStr(),
           };
           nuevosInventarios = invActual
