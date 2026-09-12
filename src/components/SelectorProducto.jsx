@@ -3,7 +3,7 @@ import {
   Search, Edit3,
 } from "lucide-react";
 
-export default function SelectorProducto({ productos, value, onChange, placeholder = "Busca por nombre, código o categoría..." }) {
+export default function SelectorProducto({ productos, value, onChange, placeholder = "Busca por nombre, código, categoría o descripción..." }) {
   const [query, setQuery] = useState("");
   const [abierto, setAbierto] = useState(false);
   const seleccionado = productos.find((p) => p.id === value);
@@ -16,7 +16,8 @@ export default function SelectorProducto({ productos, value, onChange, placehold
           p.producto.toLowerCase().includes(t) ||
           p.codigo.toLowerCase().includes(t) ||
           p.categoria.toLowerCase().includes(t) ||
-          p.talla.toLowerCase().includes(t)
+          p.talla.toLowerCase().includes(t) ||
+          (p.descripcion || "").toLowerCase().includes(t)
         );
       });
 

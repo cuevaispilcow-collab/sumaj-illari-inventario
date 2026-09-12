@@ -22,7 +22,8 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
       q.trim() === "" ||
       p.producto.toLowerCase().includes(q.toLowerCase()) ||
       p.codigo.toLowerCase().includes(q.toLowerCase()) ||
-      p.categoria.toLowerCase().includes(q.toLowerCase());
+      p.categoria.toLowerCase().includes(q.toLowerCase()) ||
+      (p.descripcion || "").toLowerCase().includes(q.toLowerCase());
     const matchesTipo = tipo === "todos" || p.tipo === tipo;
     return matchesQ && matchesTipo;
   });
@@ -129,7 +130,7 @@ export default function Productos({ productos, variantes, modelos, onSaveModelos
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar por nombre, código o categoría"
+          placeholder="Buscar por nombre, código, categoría o descripción"
           className="w-full pl-9 pr-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500"
         />
       </div>
