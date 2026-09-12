@@ -538,6 +538,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
         Sede: sede(v.ubicacion), FECHA: v.fecha, "ID-PRODUCTO": v.idProducto, PRODUCTO: v.producto, CANTIDAD: v.cantidad,
         TALLA: v.talla, DESCRIPCION: v.descripcion, PRECIO: v.precio, EFECTIVO: v.efectivo,
         YAPE: v.yape, TARJETA: v.tarjeta || 0, TOTAL: v.total,
+        Costo_unitario: v.costoUnitario ?? "", Costo_total: v.costoUnitario != null ? round2(v.costoUnitario * v.cantidad) : "",
       }))
     );
     XLSX.utils.book_append_sheet(wb, wsVentas, "Ventas");
