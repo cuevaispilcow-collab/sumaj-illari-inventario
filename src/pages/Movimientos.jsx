@@ -10,16 +10,47 @@ import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js"
 
 const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
 
+// Lista corta a propósito (una lista larga hace que la gente elija lo
+// primero que ve). "otro" siempre existe como salida de escape — sin
+// ella, la gente terminaría escribiendo cualquier cosa en el motivo
+// que sí existe. El "codigo" es lo que se guarda para poder analizar
+// después (ej. cuánto se pierde por merma) sin depender de que el
+// texto visible se escriba siempre igual — el mismo principio que ya
+// usamos con los ids de ubicación: el texto puede cambiar, el código no.
+const MOTIVOS_ENTRADA = [
+  { codigo: "ajuste_inventario", texto: "Ajuste por inventario físico" },
+  { codigo: "devolucion_cliente", texto: "Devolución de cliente" },
+  { codigo: "otro", texto: "Otro" },
+];
+const MOTIVOS_SALIDA = [
+  { codigo: "ajuste_inventario", texto: "Ajuste por inventario físico" },
+  { codigo: "merma", texto: "Merma o producto dañado" },
+  { codigo: "otro", texto: "Otro" },
+];
+
 export default function Movimientos({ productos, movimientos, onSave, onSaveInventarios, showToast, nombre, rol, ubicacion, esConsolidado, nombreVista }) {
   const [tipo, setTipo] = useState("ENTRADA");
   const [productoId, setProductoId] = useState("");
   const [cantidad, setCantidad] = useState("");
   const [fecha, setFecha] = useState(todayStr());
-  const [motivo, setMotivo] = useState("");
+  const [motivoCodigo, setMotivoCodigo] = useState("");
+  const [motivoOtro, setMotivoOtro] = useState("");
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
 
   const producto = productos.find((p) => p.id === productoId);
+  const motivosDisponibles = tipo === "ENTRADA" ? MOTIVOS_ENTRADA : MOTIVOS_SALIDA;
+
+  // La lista de motivos depende del tipo (Entrada/Salida) — si se
+  // cambia de uno a otro, la selección anterior ya no tiene sentido
+  // (ej. "Devolución de cliente" no aplica a una Salida), así que se
+  // limpia para forzar a elegir de nuevo, en vez de dejar seleccionado
+  // algo que no corresponde.
+  function cambiarTipo(nuevoTipo) {
+    setTipo(nuevoTipo);
+    setMotivoCodigo("");
+    setMotivoOtro("");
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -31,6 +62,9 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
     if (tipo === "SALIDA" && producto && producto.stock < cant) {
       return setError(`Stock insuficiente. Solo hay ${producto.stock} ${producto.unidad}.`);
     }
+    if (!motivoCodigo) return setError("Selecciona un motivo.");
+    if (motivoCodigo === "otro" && !motivoOtro.trim()) return setError("Escribe el motivo.");
+    const motivoTexto = motivoCodigo === "otro" ? motivoOtro.trim() : (motivosDisponibles.find((m) => m.codigo === motivoCodigo)?.texto || "");
 
     const claveInventario = `${productoId}__${ubicacion}`;
 
@@ -58,7 +92,7 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
         const mov = {
           id: `M${Date.now()}`, fecha, tipo, productoId, ubicacion,
           productoNombre: `${producto.producto}${producto.talla !== "Única" ? " - " + producto.talla : ""}`,
-          cantidad: cant, motivo,
+          cantidad: cant, motivo: motivoTexto, motivoCodigo,
         };
 
         return { inventarios: nuevosInventarios, movimientos: [...actuales.movimientos, mov] };
@@ -67,9 +101,9 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
       showToast("success", `${tipo === "ENTRADA" ? "Entrada" : "Salida"} registrada. Stock actualizado.`);
       registrarAuditoria({
         fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "MOVIMIENTO", ubicacion,
-        detalle: `${tipo === "ENTRADA" ? "Entrada" : "Salida"} de ${cant} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""}${motivo ? " — " + motivo : ""}`,
+        detalle: `${tipo === "ENTRADA" ? "Entrada" : "Salida"} de ${cant} ${producto?.producto || ""}${producto?.talla && producto.talla !== "Única" ? " - " + producto.talla : ""}${motivoTexto ? " — " + motivoTexto : ""}`,
       }).catch(() => {});
-      setCantidad(""); setMotivo(""); setError("");
+      setCantidad(""); setMotivoCodigo(""); setMotivoOtro(""); setError("");
     } catch (err) {
       setError(err && err.message ? err.message : "No se pudo registrar el movimiento. Intenta de nuevo.");
     } finally {
@@ -99,7 +133,7 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
           <label className="block text-xs font-medium text-stone-600 mb-1">Tipo de movimiento</label>
           <div className="grid grid-cols-2 gap-2">
             {["ENTRADA", "SALIDA"].map((t) => (
-              <button type="button" key={t} onClick={() => setTipo(t)}
+              <button type="button" key={t} onClick={() => cambiarTipo(t)}
                 className={`py-2 rounded text-sm font-medium border transition ${
                   tipo === t ? "bg-red-600 text-white border-red-600" : "bg-white text-stone-600 border-stone-300 hover:bg-stone-50"
                 }`}>
@@ -128,9 +162,21 @@ export default function Movimientos({ productos, movimientos, onSave, onSaveInve
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-stone-600 mb-1">Motivo (opcional)</label>
-          <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej: ajuste por conteo, transferencia, producto dañado"
-            className="w-full px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+          <label className="block text-xs font-medium text-stone-600 mb-1">Motivo</label>
+          <div className="grid grid-cols-3 gap-2">
+            {motivosDisponibles.map((m) => (
+              <button type="button" key={m.codigo} onClick={() => setMotivoCodigo(m.codigo)}
+                className={`py-2 px-1 rounded text-xs font-medium border transition ${
+                  motivoCodigo === m.codigo ? "bg-red-600 text-white border-red-600" : "bg-white text-stone-600 border-stone-300 hover:bg-stone-50"
+                }`}>
+                {m.texto}
+              </button>
+            ))}
+          </div>
+          {motivoCodigo === "otro" && (
+            <input autoFocus value={motivoOtro} onChange={(e) => setMotivoOtro(e.target.value)} placeholder="Escribe el motivo"
+              className="w-full mt-2 px-3 py-2 rounded-lg border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+          )}
         </div>
 
         {error && (
