@@ -5,22 +5,31 @@ import { UBICACIONES } from "../utils/constants.js";
 
 const NOMBRE_UBICACION = Object.fromEntries(UBICACIONES.map((u) => [u.id, u.nombre]));
 
+// Cada tipo de acción tiene su PROPIO color, sin repetir ninguno entre
+// los distintos tipos — antes solo había 6 colores para 14+ tipos, así
+// que varios se veían "iguales" a simple vista (ej. una venta y una
+// solicitud entregada a otra sede compartían el mismo verde azulado).
+// PEDIDO_COMPLETADO se deja tal cual para los pedidos que ya se
+// completaron con el flujo viejo (antes de separar producción de
+// entrega) — no se reclasifican, solo conservan su propia etiqueta.
 const ETIQUETAS_ACCION = {
-  VENTA: { label: "Venta", color: "bg-teal-100 text-teal-700" },
+  VENTA: { label: "Venta", color: "bg-emerald-100 text-emerald-700" },
   COMPRA: { label: "Compra", color: "bg-blue-100 text-blue-700" },
   MOVIMIENTO: { label: "Movimiento", color: "bg-stone-100 text-stone-600" },
   PRODUCCION: { label: "Producción", color: "bg-amber-100 text-amber-700" },
-  PRODUCTO_CREADO: { label: "Producto creado", color: "bg-teal-100 text-teal-700" },
-  PRODUCTO_EDITADO: { label: "Producto editado", color: "bg-amber-100 text-amber-700" },
+  PRODUCTO_CREADO: { label: "Producto creado", color: "bg-cyan-100 text-cyan-700" },
+  PRODUCTO_EDITADO: { label: "Producto editado", color: "bg-yellow-100 text-yellow-700" },
   PRODUCTO_ELIMINADO: { label: "Producto eliminado", color: "bg-red-100 text-red-700" },
-  RECETA: { label: "Ficha técnica", color: "bg-purple-100 text-purple-700" },
-  PEDIDO_TOMADO: { label: "Pedido tomado", color: "bg-blue-100 text-blue-700" },
-  PEDIDO_ETAPA: { label: "Etapa de pedido", color: "bg-stone-100 text-stone-600" },
-  PEDIDO_COMPLETADO: { label: "Pedido completado", color: "bg-teal-100 text-teal-700" },
-  TRANSFERENCIA: { label: "Transferencia", color: "bg-purple-100 text-purple-700" },
-  SOLICITUD_CREADA: { label: "Solicitud creada", color: "bg-blue-100 text-blue-700" },
-  SOLICITUD_ENTREGADA: { label: "Solicitud entregada", color: "bg-teal-100 text-teal-700" },
-  SOLICITUD_RECHAZADA: { label: "Solicitud rechazada", color: "bg-stone-100 text-stone-600" },
+  RECETA: { label: "Ficha técnica", color: "bg-violet-100 text-violet-700" },
+  PEDIDO_TOMADO: { label: "Pedido tomado", color: "bg-sky-100 text-sky-700" },
+  PEDIDO_ETAPA: { label: "Etapa de pedido", color: "bg-slate-100 text-slate-600" },
+  PEDIDO_LISTO: { label: "Pedido listo para entregar", color: "bg-lime-100 text-lime-700" },
+  PEDIDO_ENTREGADO: { label: "Pedido entregado", color: "bg-teal-100 text-teal-700" },
+  PEDIDO_COMPLETADO: { label: "Pedido completado", color: "bg-neutral-200 text-neutral-700" },
+  TRANSFERENCIA: { label: "Transferencia", color: "bg-indigo-100 text-indigo-700" },
+  SOLICITUD_CREADA: { label: "Solicitud creada", color: "bg-orange-100 text-orange-700" },
+  SOLICITUD_ENTREGADA: { label: "Solicitud entregada", color: "bg-fuchsia-100 text-fuchsia-700" },
+  SOLICITUD_RECHAZADA: { label: "Solicitud rechazada", color: "bg-rose-100 text-rose-700" },
 };
 
 function formatFechaHora(iso) {

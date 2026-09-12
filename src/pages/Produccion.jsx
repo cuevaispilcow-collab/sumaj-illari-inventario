@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Plus, XCircle, Trash2, ClipboardList, CheckCircle2, AlertTriangle,
 } from "lucide-react";
-import { todayStr, round2, formatSoles, formatFecha, filtrarPorUbicacion, promedioPonderado } from "../utils/format.js";
+import { todayStr, round2, formatSoles, formatFecha, filtrarPorUbicacion, promedioPonderado, diasHasta } from "../utils/format.js";
 import { UBICACIONES } from "../utils/constants.js";
 import SelectorProducto from "../components/SelectorProducto.jsx";
 import { operarInventarioSeguro, registrarAuditoria } from "../firestoreSync.js";
@@ -30,8 +30,20 @@ function dividirInventarioYCosto(inventariosActuales, costosActuales, cambios) {
   return { nuevosInventarios, nuevosCostos };
 }
 
-export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre, ubicacion, esConsolidado, nombreVista }) {
+export default function Produccion({ productos, variantes, modelos, onSaveModelos, movimientos, ventas, compras, producciones, pedidos, onSave, showToast, rol, nombre, ubicacion, esConsolidado, nombreVista, tabInicial, onTabInicialConsumido }) {
   const [tab, setTab] = useState("producir"); // "producir" | "recetas" | "pedidos"
+
+  // Permite que otra pantalla (ej. una alerta del Dashboard) mande
+  // directo a la pestaña "Pedidos" en vez de abrir siempre en
+  // "Producir". "onTabInicialConsumido" le avisa a quien lo pidió que
+  // ya se atendió, para que no se quede "pegado" forzando esta pestaña
+  // cada vez que este componente se vuelve a mostrar.
+  useEffect(() => {
+    if (tabInicial) {
+      setTab(tabInicial);
+      onTabInicialConsumido && onTabInicialConsumido();
+    }
+  }, [tabInicial]);
 
   const terminados = productos.filter((p) => p.tipo === "Terminado" || p.tipo === "En proceso");
   const materiasPrimas = productos.filter((p) => p.tipo === "Materia prima");
@@ -473,6 +485,14 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
   const [enviando, setEnviando] = useState(false);
   const [completandoId, setCompletandoId] = useState(null);
   const [togglingId, setTogglingId] = useState(null);
+  // Estado del formulario de pago al "Entregar" un pedido "Listo" — solo
+  // un pedido puede tener el formulario abierto a la vez.
+  const [entregandoId, setEntregandoId] = useState(null);
+  const [pagoEfectivo, setPagoEfectivo] = useState("");
+  const [pagoYape, setPagoYape] = useState("");
+  const [pagoTarjeta, setPagoTarjeta] = useState("");
+  const [errorEntrega, setErrorEntrega] = useState("");
+  const [enviandoEntrega, setEnviandoEntrega] = useState(false);
 
   const producto = terminados.find((p) => p.id === productoId);
   const cant = Number(cantidad) || 0;
@@ -502,8 +522,10 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
   }
 
   // Tomar un pedido NO mueve stock todavía — es solo seguimiento (cliente,
-  // precio cotizado, fecha de entrega). El stock y el costo real recién se
-  // mueven cuando se completan TODAS las operaciones (ver completarPedido).
+  // precio cotizado, fecha de entrega). El stock y el costo de fabricar
+  // recién se mueven cuando se completan TODAS las operaciones (ver
+  // marcarListoPedido); la venta se registra después, al entregar (ver
+  // entregarPedido).
   async function handleCrear(e) {
     e.preventDefault();
     if (enviando) return;
@@ -554,8 +576,10 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
   }
 
   // Marca (o desmarca) una operación del pedido. Si con esto quedan TODAS
-  // las operaciones marcadas, el pedido se completa solo (consume insumos,
-  // registra la venta y calcula el margen — ver completarPedido).
+  // las operaciones marcadas, el pedido pasa solo a "Listo para
+  // entregar" (consume insumos y sube el stock del terminado — ver
+  // marcarListoPedido). La entrega/venta es un paso aparte, con su
+  // propio botón "Entregar".
   async function toggleOperacion(pedido, op) {
     const yaMarcada = (pedido.operacionesCompletadas || []).includes(op);
     const nuevasCompletadas = yaMarcada
@@ -570,7 +594,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
 
     const todasCompletas = pedido.operaciones.every((o) => nuevasCompletadas.includes(o));
     if (todasCompletas) {
-      await completarPedido(pedido, nuevasCompletadas);
+      await marcarListoPedido(pedido, nuevasCompletadas);
       setTogglingId(null);
       return;
     }
@@ -580,22 +604,28 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
     setTogglingId(null);
   }
 
-  // Al completar un pedido pasan DOS cosas de negocio a la vez: se
-  // fabrica (consume insumos según la Ficha técnica, como en Producir) y
-  // se entrega al cliente (eso es una venta: descuenta el stock recién
-  // producido y registra el ingreso). Todo en una sola transacción, para
-  // que no quede "a medias" si algo falla a mitad de camino.
-  async function completarPedido(pedido, operacionesCompletadasFinal) {
+  // PASO 1 de 2: al completar la última operación, el pedido SOLO se
+  // fabrica — consume insumos según la Ficha técnica y el terminado
+  // sube de stock DE VERDAD (igual que una Producción normal desde
+  // "Producir"). El pedido queda "Listo para entregar"; la venta se
+  // registra aparte, en entregarPedido() (más abajo), recién cuando de
+  // verdad se entrega al cliente — que puede ser el mismo día o días
+  // después. Antes esto pasaba todo junto y el stock nunca llegaba a
+  // subir de verdad (subía y bajaba en el mismo cálculo), lo que además
+  // mezclaba el costo de esta producción puntual con el promedio
+  // general sin que esas unidades hubieran estado nunca de verdad en el
+  // inventario compartido — separar los pasos corrige eso de paso.
+  async function marcarListoPedido(pedido, operacionesCompletadasFinal) {
     // El pedido ya tiene su propia sede guardada desde que se tomó (ver
     // handleCrear) — se usa ESA, no la ubicación que se esté mirando en
-    // este momento. Así, avanzar o completar un pedido funciona incluso
-    // si la gerente está viendo el consolidado: no hay ambigüedad,
-    // porque el pedido ya sabe de qué sede es.
+    // este momento. Así, avanzar un pedido funciona incluso si la
+    // gerente está viendo el consolidado: no hay ambigüedad, porque el
+    // pedido ya sabe de qué sede es.
     const ubicacionPedido = pedido.ubicacion || "sumaj_illari";
     setCompletandoId(pedido.id);
     try {
-      let margenFinal = 0;
-      await operarInventarioSeguro(["inventarios", "costos", "movimientos", "producciones", "ventas", "pedidos"], (actuales) => {
+      let costoTotalFinal = 0;
+      await operarInventarioSeguro(["inventarios", "costos", "movimientos", "producciones", "pedidos"], (actuales) => {
         const invPorClave = Object.fromEntries(actuales.inventarios.map((i) => [i.id, i]));
         const costoPorClave = Object.fromEntries(actuales.costos.map((c) => [c.id, c]));
         const leerInv = (varianteId) => {
@@ -634,13 +664,13 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
         const costoUnitarioReal = pedido.cantidad > 0 ? round2(costoTotalReal / pedido.cantidad) : 0;
         const invTerminado = leerInv(pedido.productoId);
         const nuevoCostoPromedio = promedioPonderado(invTerminado.stock, invTerminado.costoUnitario, pedido.cantidad, costoUnitarioReal);
+        costoTotalFinal = costoTotalReal;
 
-        // El producto terminado se fabrica y se entrega en el acto: su
-        // stock sube y baja en el mismo movimiento, así que no cambia —
-        // pero sí se recalcula su costo promedio, y sí quedan registrados
-        // ambos pasos (producción y venta) para trazabilidad.
+        // A diferencia del flujo viejo, el stock del terminado SÍ sube
+        // de verdad acá — recién baja cuando se entrega de verdad (ver
+        // entregarPedido).
         const cambios = {
-          [invTerminado.id]: { ...invTerminado, costoUnitario: nuevoCostoPromedio },
+          [invTerminado.id]: { ...invTerminado, stock: round2(invTerminado.stock + pedido.cantidad), costoUnitario: nuevoCostoPromedio },
         };
         for (const c of consumo) {
           const yaModificado = cambios[c.inv.id] || c.inv;
@@ -660,11 +690,6 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
             productoNombre: `${terminadoReal.producto}${terminadoReal.talla !== "Única" ? " - " + terminadoReal.talla : ""}`,
             cantidad: pedido.cantidad, motivo: `Producción para pedido de ${pedido.cliente}`,
           },
-          {
-            id: `M${Date.now()}-venta`, fecha: todayStr(), tipo: "VENTA", productoId: pedido.productoId, ubicacion: ubicacionPedido,
-            productoNombre: `${terminadoReal.producto}${terminadoReal.talla !== "Única" ? " - " + terminadoReal.talla : ""}`,
-            cantidad: pedido.cantidad, motivo: `Entrega de pedido a ${pedido.cliente}`,
-          },
         ];
 
         const produccion = {
@@ -674,18 +699,9 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
           insumos: consumo.map((c) => ({ materiaPrimaId: c.materiaPrimaId, cantidad: c.necesario, costoUnitario: c.costoUnitarioMP })),
         };
 
-        const precioUnitario = pedido.cantidad > 0 ? round2(pedido.precioCotizado / pedido.cantidad) : 0;
-        const venta = {
-          id: `V${Date.now()}`, fecha: todayStr(), idProducto: terminadoReal.codigo, producto: terminadoReal.producto, ubicacion: ubicacionPedido,
-          cantidad: pedido.cantidad, talla: terminadoReal.talla, descripcion: `Pedido - ${pedido.cliente}`,
-          precio: precioUnitario, efectivo: 0, yape: 0, tarjeta: 0, total: pedido.precioCotizado,
-          costoUnitario: costoUnitarioReal, pedidoId: pedido.id,
-        };
-
-        margenFinal = round2(pedido.precioCotizado - costoTotalReal);
         const nuevosPedidos = actuales.pedidos.map((p) =>
           p.id === pedido.id
-            ? { ...p, etapa: "Completado", operacionesCompletadas: operacionesCompletadasFinal || p.operaciones, completadoEn: todayStr(), costoProduccion: costoTotalReal, margen: margenFinal }
+            ? { ...p, etapa: "Listo", operacionesCompletadas: operacionesCompletadasFinal || p.operaciones, listoEn: todayStr(), costoProduccion: costoTotalReal }
             : p
         );
 
@@ -694,21 +710,114 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
           costos: nuevosCostos,
           movimientos: nuevosMovimientos,
           producciones: [...actuales.producciones, produccion],
-          ventas: [...actuales.ventas, venta],
           pedidos: nuevosPedidos,
         };
       });
 
-      showToast("success", `Pedido de ${pedido.cliente} completado y entregado. Margen: ${formatSoles(margenFinal)}.`);
+      showToast("success", `Pedido de ${pedido.cliente} listo para entregar. Costo de producción: ${formatSoles(costoTotalFinal)}.`);
       registrarAuditoria({
-        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_COMPLETADO", ubicacion: ubicacionPedido,
-        detalle: `Pedido de ${pedido.cliente} — margen ${formatSoles(margenFinal)}`,
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_LISTO", ubicacion: ubicacionPedido,
+        detalle: `Pedido de ${pedido.cliente} listo para entregar — ${pedido.cantidad} ${pedido.producto}${pedido.talla && pedido.talla !== "Única" ? " - " + pedido.talla : ""} — costo ${formatSoles(costoTotalFinal)}`,
       }).catch(() => {});
     } catch (err) {
-      showToast("error", "No se pudo completar el pedido: " + (err && err.message ? err.message : String(err)));
+      showToast("error", "No se pudo completar la producción del pedido: " + (err && err.message ? err.message : String(err)));
     } finally {
       setCompletandoId(null);
     }
+  }
+
+  // PASO 2 de 2: entregar un pedido "Listo" es una venta como cualquier
+  // otra (mismo criterio que Ventas.jsx) — descuenta el stock que ya se
+  // había producido, al costo promedio VIGENTE en este momento (no al
+  // que tenía cuando se produjo: si pasó tiempo y algo más tocó el
+  // mismo producto mientras tanto, el costo pudo cambiar, y usar el
+  // vigente es lo correcto — es lo mismo que hace cualquier venta). Por
+  // eso "costoProduccion" (guardado en marcarListoPedido) y el margen de
+  // acá pueden no coincidir exactamente: uno es cuánto costó FABRICAR,
+  // el otro es el margen real con el costo vigente al momento de VENDER.
+  async function entregarPedido(pedido, pago) {
+    const ubicacionPedido = pedido.ubicacion || "sumaj_illari";
+    setEnviandoEntrega(true);
+    try {
+      let margenFinal = 0;
+      await operarInventarioSeguro(["inventarios", "movimientos", "ventas", "pedidos"], (actuales) => {
+        const clave = `${pedido.productoId}__${ubicacionPedido}`;
+        const invActual = actuales.inventarios.find((i) => i.id === clave);
+        const terminadoPantalla = productos.find((p) => p.id === pedido.productoId);
+        const stockActual = invActual ? invActual.stock : (terminadoPantalla?.stock || 0);
+        // Revalidación contra el dato real del servidor: si entre
+        // "Listo" y "Entregar" pasó tiempo, alguien pudo haber vendido o
+        // movido este mismo producto por otro lado.
+        if (stockActual < pedido.cantidad) {
+          throw new Error(`Stock insuficiente para entregar. Ahora mismo solo hay ${stockActual} (puede que alguien más lo haya vendido o movido mientras tanto).`);
+        }
+        const costoActualReg = actuales.costos.find((c) => c.id === clave);
+        const costoActual = costoActualReg ? costoActualReg.costoUnitario : (terminadoPantalla?.costoUnitario ?? null);
+
+        const nuevoInv = { ...invActual, stock: round2(stockActual - pedido.cantidad) };
+        const nuevosInventarios = invActual
+          ? actuales.inventarios.map((i) => (i.id === clave ? nuevoInv : i))
+          : [...actuales.inventarios, {
+              id: clave, varianteId: pedido.productoId, ubicacion: ubicacionPedido,
+              stock: round2(stockActual - pedido.cantidad),
+              stockMinimo: terminadoPantalla?.stockMinimo ?? null,
+              fechaIncorporacion: terminadoPantalla?.fechaIncorporacion || todayStr(),
+            }];
+
+        const precioUnitario = pedido.cantidad > 0 ? round2(pedido.precioCotizado / pedido.cantidad) : 0;
+        const venta = {
+          id: `V${Date.now()}`, fecha: todayStr(), idProducto: pedido.codigo, producto: pedido.producto, ubicacion: ubicacionPedido,
+          cantidad: pedido.cantidad, talla: pedido.talla, descripcion: `Pedido - ${pedido.cliente}`,
+          precio: precioUnitario, efectivo: pago.efectivo, yape: pago.yape, tarjeta: pago.tarjeta, total: pedido.precioCotizado,
+          costoUnitario: costoActual, pedidoId: pedido.id,
+        };
+        const mov = {
+          id: `M${Date.now()}-venta`, fecha: todayStr(), tipo: "VENTA", productoId: pedido.productoId, ubicacion: ubicacionPedido,
+          productoNombre: `${pedido.producto}${pedido.talla !== "Única" ? " - " + pedido.talla : ""}`,
+          cantidad: pedido.cantidad, motivo: `Entrega de pedido a ${pedido.cliente}`,
+        };
+
+        margenFinal = round2(pedido.precioCotizado - (costoActual != null ? costoActual * pedido.cantidad : 0));
+        const nuevosPedidos = actuales.pedidos.map((p) =>
+          p.id === pedido.id ? { ...p, etapa: "Entregado", entregadoEn: todayStr(), margen: margenFinal } : p
+        );
+
+        return {
+          inventarios: nuevosInventarios,
+          movimientos: [...actuales.movimientos, mov],
+          ventas: [...actuales.ventas, venta],
+          pedidos: nuevosPedidos,
+        };
+      }, ["costos"]);
+
+      showToast("success", `Pedido de ${pedido.cliente} entregado. Margen: ${formatSoles(margenFinal)}.`);
+      registrarAuditoria({
+        fecha: new Date().toISOString(), usuario: nombre || "?", rol, accion: "PEDIDO_ENTREGADO", ubicacion: ubicacionPedido,
+        detalle: `Entregó pedido de ${pedido.cliente} — margen ${formatSoles(margenFinal)}`,
+      }).catch(() => {});
+      setEntregandoId(null);
+      setPagoEfectivo(""); setPagoYape(""); setPagoTarjeta(""); setErrorEntrega("");
+    } catch (err) {
+      setErrorEntrega(err && err.message ? err.message : "No se pudo entregar el pedido. Intenta de nuevo.");
+    } finally {
+      setEnviandoEntrega(false);
+    }
+  }
+
+  function abrirEntrega(pedido) {
+    setEntregandoId(pedido.id);
+    setPagoEfectivo(""); setPagoYape(""); setPagoTarjeta(""); setErrorEntrega("");
+  }
+
+  function confirmarEntrega(pedido) {
+    const efectivo = Number(pagoEfectivo) || 0;
+    const yape = Number(pagoYape) || 0;
+    const tarjeta = Number(pagoTarjeta) || 0;
+    const suma = round2(efectivo + yape + tarjeta);
+    if (suma !== round2(pedido.precioCotizado)) {
+      return setErrorEntrega(`La forma de pago (${formatSoles(suma)}) no coincide con el total cotizado (${formatSoles(pedido.precioCotizado)}).`);
+    }
+    entregarPedido(pedido, { efectivo, yape, tarjeta });
   }
 
   // Estas listas son solo para MOSTRAR en pantalla — se filtran por
@@ -717,19 +826,22 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
   // sí guardan la colección completa: si se guardara ya filtrada, se
   // borrarían los pedidos de las otras ubicaciones.
   const pedidosUbicacion = useMemo(() => filtrarPorUbicacion(pedidos, ubicacion), [pedidos, ubicacion]);
+  // "Pendientes" incluye tanto los recién tomados ("Tomado", con sus
+  // operaciones por marcar) como los que ya se fabricaron y están
+  // esperando que alguien los entregue ("Listo") — ambos necesitan
+  // todavía una acción de alguien. "Entregado" es el final del flujo
+  // nuevo; "Completado" es la etapa final del flujo VIEJO (de antes de
+  // separar producción de entrega) — los pedidos ya completados con ese
+  // flujo se tratan igual de terminados, sin reclasificarlos.
   const pendientes = useMemo(
-    () => pedidosUbicacion.filter((p) => p.etapa !== "Completado").sort((a, b) => (a.fechaEntrega < b.fechaEntrega ? -1 : 1)),
+    () => pedidosUbicacion.filter((p) => p.etapa !== "Entregado" && p.etapa !== "Completado").sort((a, b) => (a.fechaEntrega < b.fechaEntrega ? -1 : 1)),
     [pedidosUbicacion]
   );
-  const completados = useMemo(
-    () => pedidosUbicacion.filter((p) => p.etapa === "Completado").sort((a, b) => (a.completadoEn < b.completadoEn ? 1 : -1)),
+  const entregados = useMemo(
+    () => pedidosUbicacion.filter((p) => p.etapa === "Entregado" || p.etapa === "Completado")
+      .sort((a, b) => ((a.entregadoEn || a.completadoEn || "") < (b.entregadoEn || b.completadoEn || "") ? 1 : -1)),
     [pedidosUbicacion]
   );
-
-  function diasParaEntrega(fechaEntrega) {
-    const dias = Math.ceil((new Date(fechaEntrega + "T00:00:00") - new Date(todayStr() + "T00:00:00")) / 86400000);
-    return dias;
-  }
 
   return (
     <div className="space-y-4">
@@ -847,7 +959,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
                 className="w-full py-2.5 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-60 transition">
                 {enviando ? "Guardando..." : "Registrar pedido"}
               </button>
-              <p className="text-xs text-stone-400">Tomar el pedido todavía no descuenta materia prima — eso pasa recién cuando lo marques como "Completado".</p>
+              <p className="text-xs text-stone-400">Tomar el pedido todavía no descuenta materia prima — eso pasa recién cuando termines todas sus operaciones (queda "Listo para entregar"). La entrega y el pago se registran aparte, con el botón "Entregar".</p>
             </>
           )}
         </div>
@@ -862,7 +974,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
           </div>
           <div className="divide-y divide-stone-100">
             {pendientes.map((p) => {
-              const dias = diasParaEntrega(p.fechaEntrega);
+              const dias = diasHasta(p.fechaEntrega);
               const urgente = dias <= 3;
               const vencido = dias < 0;
               const ops = p.operaciones || [];
@@ -887,7 +999,46 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
                     </span>
                   </div>
 
-                  {ops.length > 0 && (
+                  {p.etapa === "Listo" ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-3 py-2 inline-flex items-center gap-1.5">
+                        <CheckCircle2 size={13} /> Listo para entregar — costo de producción: {formatSoles(p.costoProduccion)}
+                      </p>
+                      {entregandoId === p.id ? (
+                        <div className="bg-stone-50 border border-stone-200 rounded-lg p-3 space-y-2">
+                          <p className="text-xs font-medium text-stone-600">Forma de pago (total: {formatSoles(p.precioCotizado)})</p>
+                          <div className="grid grid-cols-3 gap-2">
+                            <input type="number" min="0" placeholder="Efectivo" value={pagoEfectivo} onChange={(e) => setPagoEfectivo(e.target.value)}
+                              className="px-2 py-1.5 rounded border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+                            <input type="number" min="0" placeholder="Yape" value={pagoYape} onChange={(e) => setPagoYape(e.target.value)}
+                              className="px-2 py-1.5 rounded border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+                            <input type="number" min="0" placeholder="Tarjeta" value={pagoTarjeta} onChange={(e) => setPagoTarjeta(e.target.value)}
+                              className="px-2 py-1.5 rounded border border-stone-300 text-sm text-stone-800 bg-white placeholder:text-stone-400 focus:outline-none focus:ring-2 focus:ring-red-500" />
+                          </div>
+                          {errorEntrega && (
+                            <p className="text-xs text-red-600 flex items-center gap-1.5">
+                              <XCircle size={12} /> {errorEntrega}
+                            </p>
+                          )}
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => confirmarEntrega(p)} disabled={enviandoEntrega}
+                              className="flex-1 py-2 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-60 transition">
+                              {enviandoEntrega ? "Entregando..." : "Confirmar entrega"}
+                            </button>
+                            <button type="button" onClick={() => setEntregandoId(null)} disabled={enviandoEntrega}
+                              className="px-3 py-2 rounded-lg border border-stone-300 text-xs font-medium text-stone-600 hover:bg-stone-50 transition">
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => abrirEntrega(p)}
+                          className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition">
+                          Entregar
+                        </button>
+                      )}
+                    </div>
+                  ) : ops.length > 0 && (
                     <>
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-1.5 bg-stone-100 rounded-full overflow-hidden">
@@ -920,7 +1071,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
                         })}
                       </div>
                       <p className="text-xs text-stone-400">
-                        Al marcar la última operación, el pedido se completa solo: consume la materia prima y registra la venta.
+                        Al marcar la última operación, el pedido consume la materia prima y queda "Listo para entregar" — la venta se registra aparte, al entregarlo.
                       </p>
                     </>
                   )}
@@ -931,10 +1082,10 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
         </div>
       )}
 
-      {completados.length > 0 && (
+      {entregados.length > 0 && (
         <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
           <div className="bg-stone-50 px-4 py-2 border-b border-stone-200">
-            <span className="text-sm font-semibold text-stone-700">Completados</span>
+            <span className="text-sm font-semibold text-stone-700">Entregados</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -949,7 +1100,7 @@ function PedidosPanel({ productos, variantes, modelos, onSaveModelos, movimiento
                 </tr>
               </thead>
               <tbody>
-                {completados.map((p) => (
+                {entregados.map((p) => (
                   <tr key={p.id} className="border-b border-stone-50 last:border-0">
                     {esConsolidado && <td className="px-4 py-1.5 text-stone-500">{NOMBRE_UBICACION[p.ubicacion] || NOMBRE_UBICACION.sumaj_illari}</td>}
                     <td className="px-4 py-1.5 text-stone-800 inline-flex items-center gap-1.5">

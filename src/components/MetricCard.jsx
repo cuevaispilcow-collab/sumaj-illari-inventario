@@ -1,7 +1,7 @@
 import React from "react";
 import { DARK_GRID, DARK_TICK, DARK_TOOLTIP, DARK_TOOLTIP_ITEM, DARK_TOOLTIP_LABEL } from "../utils/constants.js";
 
-export default function MetricCard({ icon: Icon, label, value, tone = "default", dark = false, color }) {
+export default function MetricCard({ icon: Icon, label, value, tone = "default", dark = false, color, hint }) {
   if (dark) {
     const c = color || "#DC2626";
     return (
@@ -13,6 +13,7 @@ export default function MetricCard({ icon: Icon, label, value, tone = "default",
           </div>
         </div>
         <p className="text-2xl font-semibold text-stone-50 truncate">{value}</p>
+        {hint && <p className="text-[10px] text-stone-500 mt-1">{hint}</p>}
       </div>
     );
   }
@@ -24,6 +25,7 @@ export default function MetricCard({ icon: Icon, label, value, tone = "default",
         <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
       </div>
       <p className={`text-2xl font-semibold ${toneClasses[tone]}`}>{value}</p>
+      {hint && <p className="text-[10px] text-stone-400 mt-1">{hint}</p>}
     </div>
   );
 }

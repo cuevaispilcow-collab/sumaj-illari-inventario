@@ -16,6 +16,15 @@ export function formatSoles(n) {
 }
 
 
+// Cuántos días faltan para una fecha (negativo si ya pasó). La usa
+// Producción para saber si un pedido está por vencer o ya venció, y el
+// panel de alertas del Dashboard para lo mismo — una sola fórmula para
+// no tener el mismo cálculo de fechas duplicado en dos lugares.
+export function diasHasta(fechaISO) {
+  return Math.ceil((new Date(fechaISO + "T00:00:00") - new Date(todayStr() + "T00:00:00")) / 86400000);
+}
+
+
 export function formatFecha(iso) {
   if (!iso) return "";
   const [y, m, d] = iso.split("-").map(Number);

@@ -73,6 +73,16 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   const [ready, setReady] = useState(false);
   const [view, setView] = useState(vistaInicial(rol));
   const [toast, setToast] = useState(null);
+  // Permite que una alerta del Dashboard mande directo a la pestaña
+  // "Pedidos" dentro de Producción, en vez de siempre abrir en
+  // "Producir". Se limpia sola apenas Producción la usa (ver
+  // onTabInicialConsumido), para que no se quede forzando esa pestaña
+  // si después alguien entra a Producción por el menú normal.
+  const [produccionTabInicial, setProduccionTabInicial] = useState(null);
+  function irAPedidos() {
+    setProduccionTabInicial("pedidos");
+    setView("produccion");
+  }
 
   // Quién es HOY la persona detrás de esta cuenta compartida. Se
   // pregunta UNA SOLA VEZ POR CELULAR (no cada vez que se recarga la
@@ -412,15 +422,75 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
   const comprasUbicacion = React.useMemo(() => filtrarPorUbicacion(compras, ubicacionVista), [compras, ubicacionVista]);
   const transferenciasUbicacion = React.useMemo(() => filtrarTransferencias(transferencias, ubicacionVista), [transferencias, ubicacionVista]);
   const solicitudesUbicacion = React.useMemo(() => filtrarSolicitudes(solicitudes, ubicacionVista), [solicitudes, ubicacionVista]);
-  // Contador para el aviso rojo en "Transferencias" del menú: cuántas
-  // solicitudes le llegaron a ESTA sede y todavía nadie respondió. En
-  // consolidado se suman las de las 3 sedes, para que la gerente vea
-  // que hay algo pendiente en algún lado sin tener que ir mirando sede
-  // por sede.
-  const solicitudesPendientesParaMi = React.useMemo(() => {
+  // Solicitudes que le llegaron a la sede/vista que se está viendo y
+  // todavía nadie respondió — la misma lista alimenta el aviso rojo del
+  // menú (solo el conteo) y el panel de alertas del Dashboard (el
+  // detalle), para no calcular "qué está pendiente para mí" de dos
+  // formas distintas en dos lugares.
+  const solicitudesPendientesLista = React.useMemo(() => {
     const sedesVistaIds = new Set(sedesDeVista(ubicacionVista));
-    return (solicitudes || []).filter((s) => s.estado === "pendiente" && sedesVistaIds.has(s.proveedor)).length;
+    return (solicitudes || [])
+      .filter((s) => s.estado === "pendiente" && sedesVistaIds.has(s.proveedor))
+      .map((s) => ({
+        ...s,
+        nombreSede: NOMBRE_UBICACION[s.proveedor] || NOMBRE_UBICACION.sumaj_illari,
+        nombreSolicitante: NOMBRE_UBICACION[s.solicitante] || NOMBRE_UBICACION.sumaj_illari,
+      }));
   }, [solicitudes, ubicacionVista]);
+  const solicitudesPendientesParaMi = solicitudesPendientesLista.length;
+  // Pedidos de la vista activa, para el panel de alertas (vencidos y
+  // por vencer). Un pedido siempre pertenece a UNA sola sede real (no
+  // hay pedidos "de todas"), así que alcanza con el mismo filtro simple
+  // que ya usa Producción — no tiene el problema de "esconder" una sede
+  // detrás de un total combinado, porque acá no se suma nada.
+  const pedidosUbicacion = React.useMemo(
+    () => filtrarPorUbicacion(pedidos, ubicacionVista).map((p) => ({ ...p, nombreSede: NOMBRE_UBICACION[p.ubicacion] || NOMBRE_UBICACION.sumaj_illari })),
+    [pedidos, ubicacionVista]
+  );
+  // Alertas de stock (sin stock y bajo mínimo), sede por sede dentro de
+  // la vista activa. A propósito NO se calculan sobre el total
+  // combinado: en vista múltiple, una sede podría estar en cero (o por
+  // debajo de su mínimo) mientras otra tiene de sobra, y el total
+  // combinado se vería "bien" y escondería el problema real — por eso
+  // se revisa cada sede por separado, y cada alerta indica de cuál es.
+  const alertasStockPorSede = React.useMemo(() => {
+    if (!productos || !inventarios) return { sinStock: [], bajoMinimo: [] };
+    const modelosPorCodigo = Object.fromEntries((modelos || []).map((m) => [m.codigo, m]));
+    const sinStock = [];
+    const bajoMinimo = [];
+    for (const p of productos) {
+      for (const sedeId of sedesDeVista(ubicacionVista)) {
+        // Un producto sin ningún registro de inventario en esta sede
+        // (nunca llegó ahí por compra, transferencia o compra
+        // distribuida) NO cuenta como "sin stock" — simplemente no es
+        // parte del surtido de esa sede todavía, no es que se haya
+        // acabado. Sumaj Illari es la excepción: los productos de antes
+        // del multi-sede viven ahí sin un registro aparte (ver el
+        // "fallback" de datosEnUbicacion), así que sí es una sede real
+        // para este chequeo aunque no tenga un registro explícito.
+        const tieneRegistro = sedeId === "sumaj_illari" || !!inventariosPorClave[`${p.id}__${sedeId}`];
+        if (!tieneRegistro) continue;
+        const d = datosEnUbicacion(p, sedeId);
+        const info = modelosPorCodigo[p.codigo] || {};
+        const entrada = {
+          id: `${p.id}__${sedeId}`,
+          nombre: `${info.producto || p.producto}${p.talla !== "Única" ? " - " + p.talla : ""}`,
+          sede: sedeId, nombreSede: NOMBRE_UBICACION[sedeId] || NOMBRE_UBICACION.sumaj_illari,
+        };
+        if (d.stock === 0) {
+          sinStock.push(entrada);
+        } else if (d.stockMinimo != null && d.stock <= d.stockMinimo) {
+          // Si ya está en cero, cae arriba en "sin stock" — no hace
+          // falta que aparezca DE NUEVO acá como "bajo mínimo" para el
+          // mismo problema real, eso duplicaría la alerta.
+          bajoMinimo.push({ ...entrada, stock: d.stock, stockMinimo: d.stockMinimo });
+        }
+      }
+    }
+    return { sinStock, bajoMinimo };
+  }, [productos, modelos, inventariosPorClave, costosPorClave, ubicacionVista]);
+  const alertasSinStock = alertasStockPorSede.sinStock;
+  const alertasBajoMinimo = alertasStockPorSede.bajoMinimo;
   // La auditoría no es una de las pantallas que pediste que siguieran el
   // selector explícitamente, pero como ahora cada registro SÍ guarda de
   // qué sede vino (ver los 7 archivos que llaman a registrarAuditoria),
@@ -474,7 +544,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
 
     const wsMov = XLSX.utils.json_to_sheet(
       movimientos.map((m) => ({
-        Sede: sede(m.ubicacion), Fecha: m.fecha, Tipo: m.tipo, Producto: m.productoNombre, Cantidad: m.cantidad, Motivo: m.motivo || "",
+        Sede: sede(m.ubicacion), Fecha: m.fecha, Tipo: m.tipo, Producto: m.productoNombre, Cantidad: m.cantidad, Motivo: m.motivo || "", Motivo_codigo: m.motivoCodigo || "",
       }))
     );
     XLSX.utils.book_append_sheet(wb, wsMov, "Movimientos");
@@ -559,7 +629,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
       <Sidebar view={vistaSegura} setView={setView} onExportClick={exportarExcel} rol={rol} ubicacion={ubicacion} ubicacionVista={ubicacionVista} onChangeUbicacionVista={setUbicacionSeleccionada} cerrarSesion={cerrarSesion} nombreSesion={nombreSesion} onCambiarNombre={() => setPidiendoNombre(true)} solicitudesPendientes={solicitudesPendientesParaMi} />
       <main className={`flex-1 min-w-0 ${vistaOscura ? "bg-stone-950" : ""}`}>
         <div className="max-w-6xl mx-auto px-4 py-6 lg:px-8 lg:py-8">
-          {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} esConsolidado={esConsolidado} valorizacionPorSede={valorizacionPorSede} nombreVista={nombreVista} />}
+          {vistaSegura === "dashboard" && <Dashboard productos={productosCompletos} movimientos={movimientosUbicacion} ventas={ventasUbicacion} setView={setView} esConsolidado={esConsolidado} valorizacionPorSede={valorizacionPorSede} nombreVista={nombreVista} pedidos={pedidosUbicacion} solicitudesPendientes={solicitudesPendientesLista} alertasSinStock={alertasSinStock} alertasBajoMinimo={alertasBajoMinimo} onIrAPedidos={irAPedidos} />}
           {vistaSegura === "productos" && (
             <Productos productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} inventarios={inventarios} onSaveInventarios={persistInventarios} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} movimientos={movimientos} ventas={ventas} onSave={persist} showToast={showToast} setView={setView} rol={rol} nombre={nombreSesion} />
           )}
@@ -580,7 +650,7 @@ function SumajIllariApp({ rol, nombre, ubicacion, cerrarSesion }) {
           )}
           {vistaSegura === "auditoria" && <Auditoria auditoria={auditoriaUbicacion} esConsolidado={esConsolidado} nombreVista={nombreVista} />}
           {vistaSegura === "produccion" && (
-            <Produccion productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} onSaveInventarios={persistInventarios} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} nombre={nombreSesion} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} />
+            <Produccion productos={productosCompletos} variantes={productos} modelos={modelos} onSaveModelos={persistModelos} onSaveInventarios={persistInventarios} movimientos={movimientos} ventas={ventas} compras={compras} producciones={producciones} pedidos={pedidos} onSave={persist} showToast={showToast} rol={rol} nombre={nombreSesion} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} tabInicial={produccionTabInicial} onTabInicialConsumido={() => setProduccionTabInicial(null)} />
           )}
           {vistaSegura === "nuevo" && (
             <NuevoProducto productos={productos} modelos={modelos} onSaveModelos={persistModelos} onSaveInventarios={persistInventarios} inventarios={inventarios} movimientos={movimientos} onSave={persist} showToast={showToast} setView={setView} nombre={nombreSesion} rol={rol} ubicacion={ubicacionVista} esConsolidado={esConsolidado} nombreVista={nombreVista} />
