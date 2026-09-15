@@ -5,12 +5,14 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid,
 } from "recharts";
-import { CHART_COLORS, DARK_GRID, DARK_TICK, DARK_TOOLTIP, DARK_TOOLTIP_ITEM, DARK_TOOLTIP_LABEL } from "../utils/constants.js";
+import { DARK_GRID, DARK_TICK, DARK_TOOLTIP, DARK_TOOLTIP_ITEM, DARK_TOOLTIP_LABEL } from "../utils/constants.js";
+import { ESTADO_COLORES, BAR_MAX_SIZE, useTemaChart } from "../utils/chartTheme.js";
 import { round2, formatSoles } from "../utils/format.js";
 import MetricCard from "../components/MetricCard.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 
 export default function Margenes({ productos, ventas }) {
+  const temaChart = useTemaChart();
   const ventasConCosto = ventas.filter((v) => v.costoUnitario != null);
   const ventasSinCosto = ventas.length - ventasConCosto.length;
 
@@ -64,10 +66,10 @@ export default function Margenes({ productos, ventas }) {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricCard dark color={CHART_COLORS.success} icon={Wallet} label="Margen bruto total" value={formatSoles(margenBrutoTotal)} />
-        <MetricCard dark color={CHART_COLORS.purple} icon={Percent} label="Margen promedio" value={`${margenPctTotal}%`} />
-        <MetricCard dark color={CHART_COLORS.info} icon={ReceiptText} label="Ingreso (con costo)" value={formatSoles(ingresoTotal)} />
-        <MetricCard dark color={CHART_COLORS.primary} icon={Award} label="Más rentable" value={masRentable ? masRentable.nombre : "—"} />
+        <MetricCard dark color={ESTADO_COLORES.success} icon={Wallet} label="Margen bruto total" value={formatSoles(margenBrutoTotal)} />
+        <MetricCard dark color={temaChart.serie[1]} icon={Percent} label="Margen promedio" value={`${margenPctTotal}%`} />
+        <MetricCard dark color={temaChart.serie[3]} icon={ReceiptText} label="Ingreso (con costo)" value={formatSoles(ingresoTotal)} />
+        <MetricCard dark color="marca" icon={Award} label="Más rentable" value={masRentable ? masRentable.nombre : "—"} />
       </div>
 
       <div className="bg-stone-900 rounded-xl border border-stone-800 shadow-sm p-4">
@@ -78,9 +80,9 @@ export default function Margenes({ productos, ventas }) {
             <XAxis type="number" tick={DARK_TICK} />
             <YAxis type="category" dataKey="nombre" tick={DARK_TICK} width={160} />
             <Tooltip contentStyle={DARK_TOOLTIP} itemStyle={DARK_TOOLTIP_ITEM} labelStyle={DARK_TOOLTIP_LABEL} formatter={(v) => `S/ ${v}`} />
-            <Bar dataKey="margenSoles" radius={[0, 4, 4, 0]}>
+            <Bar dataKey="margenSoles" radius={[0, 4, 4, 0]} maxBarSize={BAR_MAX_SIZE}>
               {ranking.map((r, i) => (
-                <Cell key={i} fill={r.margenSoles >= 0 ? CHART_COLORS.success : CHART_COLORS.danger} />
+                <Cell key={i} fill={r.margenSoles >= 0 ? ESTADO_COLORES.success : ESTADO_COLORES.danger} />
               ))}
             </Bar>
           </BarChart>

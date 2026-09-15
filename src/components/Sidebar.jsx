@@ -33,23 +33,27 @@ export default function Sidebar({ view, setView, onExportClick, rol, ubicacion, 
 
   const contenidoNav = (
     <>
-      <div className="flex items-center gap-3 px-5 pt-6 pb-5">
+      <div className="px-5 pt-6 pb-5">
         {tema === "jl" ? (
+          // El logo nuevo (fondo transparente, sin eslogan, partes negras
+          // pasadas a blanco) ya trae el casco Y "JL LEONEL" dibujados
+          // adentro — por eso acá no se arma un logo+texto lado a lado
+          // como con Sumaj Illari, solo se agranda la imagen sola.
           <>
-            <img src={`${import.meta.env.BASE_URL}logo-jl.png`} alt="JL Leonel" className="h-14 w-auto rounded shrink-0 bg-white p-1" />
-            <p className="text-xs text-stone-400 font-semibold">Sistema de gestión</p>
+            <img src={`${import.meta.env.BASE_URL}logo-jl-menu.png`} alt="JL Leonel" className="h-24 w-auto max-w-full" />
+            <p className="text-sm text-stone-400 font-semibold mt-2">Sistema de gestión</p>
           </>
         ) : (
-          <>
+          <div className="flex items-center gap-3">
             <Logo size={48} className="shrink-0" />
             <div>
               <p className="leading-none">
                 <span className="text-red-400 font-black tracking-tight text-xl">SUMAJ</span>
                 <span className="text-stone-100 font-black tracking-tight text-xl"> ILLARI</span>
               </p>
-              <p className="text-xs text-stone-400 font-semibold mt-1">Sistema de gestión</p>
+              <p className="text-sm text-stone-400 font-semibold mt-1">Sistema de gestión</p>
             </div>
-          </>
+          </div>
         )}
       </div>
       {rol === "gerente" && (
@@ -143,7 +147,7 @@ export default function Sidebar({ view, setView, onExportClick, rol, ubicacion, 
       <div className="lg:hidden flex items-center justify-between bg-stone-900 text-stone-100 px-4 py-3">
         <div className="flex items-center gap-2.5">
           {tema === "jl" ? (
-            <img src={`${import.meta.env.BASE_URL}logo-jl.png`} alt="JL Leonel" className="h-9 w-auto rounded bg-white p-0.5" />
+            <img src={`${import.meta.env.BASE_URL}logo-jl-menu.png`} alt="JL Leonel" className="h-12 w-auto" />
           ) : (
             <>
               <Logo size={36} />

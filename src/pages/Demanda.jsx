@@ -1,16 +1,19 @@
-import React from "react";
+import React, { useId } from "react";
 import {
   Package, TrendingDown, TrendingUp, Award,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { CHART_COLORS, DARK_GRID, DARK_TICK, DARK_TOOLTIP, DARK_TOOLTIP_ITEM, DARK_TOOLTIP_LABEL } from "../utils/constants.js";
+import { DARK_GRID, DARK_TICK, DARK_TOOLTIP, DARK_TOOLTIP_ITEM, DARK_TOOLTIP_LABEL } from "../utils/constants.js";
+import { ESTADO_COLORES, BAR_MAX_SIZE, useTemaChart } from "../utils/chartTheme.js";
 import { round2, formatSoles } from "../utils/format.js";
 import MetricCard from "../components/MetricCard.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 
 export default function Demanda({ ventas, productos }) {
+  const temaChart = useTemaChart();
+  const gradientId = `demanda-top10-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   if (ventas.length === 0) {
     return (
       <EmptyState
@@ -45,20 +48,26 @@ export default function Demanda({ ventas, productos }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <MetricCard dark color={CHART_COLORS.info} icon={Package} label="Productos con demanda" value={ranking.length} />
-        <MetricCard dark color={CHART_COLORS.warning} icon={TrendingDown} label="Unidades vendidas" value={totalUnidades} />
-        <MetricCard dark color={CHART_COLORS.primary} icon={Award} label="Más vendido" value={ranking[0]?.nombre || "—"} />
+        <MetricCard dark color={temaChart.serie[3]} icon={Package} label="Productos con demanda" value={ranking.length} />
+        <MetricCard dark color={ESTADO_COLORES.warning} icon={TrendingDown} label="Unidades vendidas" value={totalUnidades} />
+        <MetricCard dark color="marca" icon={Award} label="Más vendido" value={ranking[0]?.nombre || "—"} />
       </div>
 
       <div className="bg-stone-900 rounded-xl border border-stone-800 shadow-sm p-4">
         <h2 className="text-sm font-semibold text-stone-100 mb-3">Top 10 productos con más demanda</h2>
         <ResponsiveContainer width="100%" height={Math.max(220, top10.length * 34)}>
           <BarChart data={top10} layout="vertical" margin={{ left: 10, right: 20 }}>
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor={temaChart.acento} stopOpacity={0.55} />
+                <stop offset="100%" stopColor={temaChart.acento} stopOpacity={1} />
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={DARK_GRID} />
             <XAxis type="number" tick={DARK_TICK} allowDecimals={false} />
             <YAxis type="category" dataKey="nombre" tick={DARK_TICK} width={160} />
             <Tooltip contentStyle={DARK_TOOLTIP} itemStyle={DARK_TOOLTIP_ITEM} labelStyle={DARK_TOOLTIP_LABEL} />
-            <Bar dataKey="unidades" fill={CHART_COLORS.primary} radius={[0, 4, 4, 0]} />
+            <Bar dataKey="unidades" fill={`url(#${gradientId})`} radius={[0, 4, 4, 0]} maxBarSize={BAR_MAX_SIZE} />
           </BarChart>
         </ResponsiveContainer>
       </div>

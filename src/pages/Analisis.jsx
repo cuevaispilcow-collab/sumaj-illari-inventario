@@ -5,12 +5,14 @@ import {
 import {
   Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid, AreaChart, Area, ComposedChart, Line,
 } from "recharts";
-import { CHART_COLORS, DARK_GRID, DARK_TICK, DARK_TOOLTIP, DARK_TOOLTIP_ITEM, DARK_TOOLTIP_LABEL } from "../utils/constants.js";
+import { DARK_GRID, DARK_TICK, DARK_TOOLTIP, DARK_TOOLTIP_ITEM, DARK_TOOLTIP_LABEL } from "../utils/constants.js";
+import { ESTADO_COLORES, BAR_MAX_SIZE, useTemaChart } from "../utils/chartTheme.js";
 import { round2, formatSoles } from "../utils/format.js";
 import MetricCard from "../components/MetricCard.jsx";
 import EmptyState from "../components/EmptyState.jsx";
 
 export default function Analisis({ productos, movimientos, ventas }) {
+  const temaChart = useTemaChart();
   if (productos.length === 0) {
     return (
       <EmptyState
@@ -128,18 +130,18 @@ export default function Analisis({ productos, movimientos, ventas }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricCard dark color={CHART_COLORS.info} icon={Package} label="Stock disponible" value={stockTotal} />
-        <MetricCard dark color={CHART_COLORS.purple} icon={RefreshCw} label="Días de stock disponible" value={rotacionDias != null ? rotacionDias : "—"} />
-        <MetricCard dark color={CHART_COLORS.warning} icon={TrendingDown} label="Unidades vendidas" value={unidadesVendidas} />
-        <MetricCard dark color={CHART_COLORS.success} icon={TrendingUp} label="Unidades compradas" value={unidadesCompradas} />
+        <MetricCard dark color={temaChart.serie[3]} icon={Package} label="Stock disponible" value={stockTotal} />
+        <MetricCard dark color={temaChart.serie[1]} icon={RefreshCw} label="Días de stock disponible" value={rotacionDias != null ? rotacionDias : "—"} />
+        <MetricCard dark color={ESTADO_COLORES.warning} icon={TrendingDown} label="Unidades vendidas" value={unidadesVendidas} />
+        <MetricCard dark color={ESTADO_COLORES.success} icon={TrendingUp} label="Unidades compradas" value={unidadesCompradas} />
       </div>
 
       <div className="bg-stone-900 rounded-xl border border-stone-800 shadow-sm p-4">
         <div className="flex items-center gap-2 mb-1">
-          <Repeat size={15} className="text-stone-400" />
+          <Repeat size={15} style={{ color: temaChart.acento }} />
           <h2 className="text-sm font-semibold text-stone-100">Rotación anual de inventario (veces)</h2>
         </div>
-        <p className="text-xs text-stone-500 mb-3">
+        <p className="text-xs text-stone-400 mb-3">
           Costo de lo vendido ÷ valor del inventario actual, anualizado. Un número bajo indica capital dormido — dinero invertido en stock que casi no se mueve.
         </p>
         {(ventasSinCostoRotacion > 0 || productosSinCostoRotacion > 0) && (
@@ -168,7 +170,7 @@ export default function Analisis({ productos, movimientos, ventas }) {
                 <p className="text-xl font-bold text-stone-100">{formatSoles(valorInventarioActual)}</p>
               </div>
             </div>
-            <p className="text-xs text-stone-500 mb-3">
+            <p className="text-xs text-stone-400 mb-3">
               Calculado sobre {diasPeriodoCogs} día{diasPeriodoCogs !== 1 ? "s" : ""} de historial de ventas con costo — cuanto menos historial, menos confiable la proyección anual.
             </p>
             {rotacionPorProducto.length > 0 && (
@@ -203,7 +205,15 @@ export default function Analisis({ productos, movimientos, ventas }) {
         <div className="bg-stone-900 rounded-xl border border-stone-800 shadow-sm p-4">
           <h2 className="text-sm font-semibold text-stone-100 mb-3">Stock por categoría</h2>
           {(() => {
-            const paleta = [CHART_COLORS.info, CHART_COLORS.success, CHART_COLORS.purple, CHART_COLORS.warning, CHART_COLORS.primary, CHART_COLORS.neutral];
+            // "categoria" es texto libre (a diferencia de TIPOS, que es una
+            // lista fija de 4) — puede haber más de 4 categorías distintas
+            // en la tienda. Reciclar los 4 colores de la familia tal cual
+            // haría que dos categorías reales se vean IDÉNTICAS en el pie,
+            // lo cual es peor que tener colores sueltos. Por eso, a partir
+            // de la 5ta categoría se repiten los mismos 4 tonos pero con
+            // menos opacidad — sigue siendo la misma familia, pero
+            // distinguible.
+            const colorCategoria = (i) => temaChart.serie[i % 4] + (i >= 4 ? "99" : "");
             const totalCat = porCategoria.reduce((s, c) => s + c.stock, 0);
             return (
               <div className="flex items-center gap-4">
@@ -211,7 +221,7 @@ export default function Analisis({ productos, movimientos, ventas }) {
                   <PieChart>
                     <Pie data={porCategoria} dataKey="stock" nameKey="categoria" innerRadius={42} outerRadius={80} paddingAngle={2} stroke="#0c0a09" strokeWidth={2}>
                       {porCategoria.map((d, i) => (
-                        <Cell key={i} fill={paleta[i % paleta.length]} />
+                        <Cell key={i} fill={colorCategoria(i)} />
                       ))}
                     </Pie>
                     <Tooltip contentStyle={DARK_TOOLTIP} itemStyle={DARK_TOOLTIP_ITEM} />
@@ -221,7 +231,7 @@ export default function Analisis({ productos, movimientos, ventas }) {
                   {porCategoria.map((d, i) => (
                     <div key={d.categoria} className="flex items-center justify-between text-xs gap-2">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: paleta[i % paleta.length] }} />
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: colorCategoria(i) }} />
                         <span className="text-stone-300 truncate">{d.categoria}</span>
                       </div>
                       <span className="text-stone-400 shrink-0">
@@ -246,15 +256,15 @@ export default function Analisis({ productos, movimientos, ventas }) {
               <AreaChart data={demandaData} margin={{ left: 0, right: 10 }}>
                 <defs>
                   <linearGradient id="demandaFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={CHART_COLORS.purple} stopOpacity={0.5} />
-                    <stop offset="95%" stopColor={CHART_COLORS.purple} stopOpacity={0.05} />
+                    <stop offset="5%" stopColor={temaChart.acento} stopOpacity={0.5} />
+                    <stop offset="95%" stopColor={temaChart.acento} stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={DARK_GRID} />
                 <XAxis dataKey="mes" tick={DARK_TICK} />
                 <YAxis tick={DARK_TICK} allowDecimals={false} />
                 <Tooltip contentStyle={DARK_TOOLTIP} itemStyle={DARK_TOOLTIP_ITEM} labelStyle={DARK_TOOLTIP_LABEL} />
-                <Area type="monotone" dataKey="cantidad" stroke={CHART_COLORS.purple} fill="url(#demandaFill)" strokeWidth={2} />
+                <Area type="monotone" dataKey="cantidad" stroke={temaChart.acento} fill="url(#demandaFill)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -263,16 +273,16 @@ export default function Analisis({ productos, movimientos, ventas }) {
 
       <div className="bg-stone-900 rounded-xl border border-stone-800 shadow-sm p-4">
         <h2 className="text-sm font-semibold text-stone-100 mb-1">Inventario óptimo por categoría</h2>
-        <p className="text-xs text-stone-500 mb-3">Barra: stock actual · Línea: stock mínimo (categorías con mínimo definido)</p>
+        <p className="text-xs text-stone-400 mb-3">Barra: stock actual · Línea: stock mínimo (categorías con mínimo definido)</p>
         <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={porCategoria} margin={{ left: 0, right: 10 }}>
             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={DARK_GRID} />
             <XAxis dataKey="categoria" tick={DARK_TICK} interval={0} angle={-20} textAnchor="end" height={50} />
             <YAxis tick={DARK_TICK} allowDecimals={false} />
             <Tooltip contentStyle={DARK_TOOLTIP} itemStyle={DARK_TOOLTIP_ITEM} labelStyle={DARK_TOOLTIP_LABEL} />
-            <Bar dataKey="stock" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="stock" radius={[4, 4, 0, 0]} maxBarSize={BAR_MAX_SIZE}>
               {porCategoria.map((d, i) => (
-                <Cell key={i} fill={d.minimo != null && d.stock <= d.minimo ? CHART_COLORS.danger : CHART_COLORS.success} />
+                <Cell key={i} fill={d.minimo != null && d.stock <= d.minimo ? ESTADO_COLORES.danger : ESTADO_COLORES.success} />
               ))}
             </Bar>
             <Line type="monotone" dataKey="minimo" stroke="#f5f5f4" strokeDasharray="4 3" dot={{ r: 3 }} connectNulls />
@@ -296,9 +306,9 @@ export default function Analisis({ productos, movimientos, ventas }) {
             <p className="text-xs text-stone-400 font-medium mb-1">Inv. mínimo</p>
             <p className="text-xl font-bold text-stone-100">{invMinimo}</p>
           </div>
-          <div className="bg-blue-950/60 border border-blue-800 rounded-lg p-3">
-            <p className="text-xs text-blue-400 font-medium mb-1">Inv. seguridad</p>
-            <p className="text-xl font-bold text-blue-100">{invSeguridad}</p>
+          <div className="rounded-lg p-3 border" style={{ backgroundColor: temaChart.acento + "1A", borderColor: temaChart.acento + "55" }}>
+            <p className="text-xs font-medium mb-1" style={{ color: temaChart.acento }}>Inv. seguridad</p>
+            <p className="text-xl font-bold text-stone-100">{invSeguridad}</p>
           </div>
           <div className={`rounded-lg p-3 border ${porReponer > 0 ? "bg-red-950/60 border-red-800" : "bg-stone-800/60 border-stone-700"}`}>
             <p className={`text-xs font-medium mb-1 ${porReponer > 0 ? "text-red-400" : "text-stone-400"}`}>Por reponer</p>

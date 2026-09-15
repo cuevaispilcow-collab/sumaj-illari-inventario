@@ -313,36 +313,36 @@ export default function Compras({ productos, variantes, movimientos, compras, on
 
       {tab === "pareto" ? (
         pareto.length === 0 ? (
-          <EmptyState icon={BarChart3} title="Todavía no hay compras para analizar" body="En cuanto registres compras, aquí vas a ver qué productos concentran el 80% de tu gasto." />
+          <EmptyState dark icon={BarChart3} title="Todavía no hay compras para analizar" body="En cuanto registres compras, aquí vas a ver qué productos concentran el 80% de tu gasto." />
         ) : (
-          <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
-            <div className="bg-stone-50 px-4 py-2.5 border-b border-stone-200">
-              <p className="text-sm text-stone-600">
-                Los productos marcados en rojo son los que concentran aproximadamente el <strong>80% de todo lo que has comprado</strong>. Son los que más conviene vigilar de cerca o negociar con el proveedor.
+          <div className="bg-stone-900 rounded-2xl border border-stone-800 shadow-xl shadow-black/20 overflow-hidden">
+            <div className="bg-stone-800/60 px-4 py-2.5 border-b border-stone-800">
+              <p className="text-sm text-stone-300">
+                Los productos marcados en rojo son los que concentran aproximadamente el <strong className="text-stone-100">80% de todo lo que has comprado</strong>. Son los que más conviene vigilar de cerca o negociar con el proveedor.
               </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-stone-50 border-b border-stone-200">
+                <thead className="bg-stone-800/60 border-b border-stone-800">
                   <tr>
-                    <th className="text-left px-4 py-2 font-medium text-stone-600">Producto</th>
-                    <th className="text-right px-4 py-2 font-medium text-stone-600">Gastado</th>
-                    <th className="text-right px-4 py-2 font-medium text-stone-600">% del total</th>
-                    <th className="text-right px-4 py-2 font-medium text-stone-600">% acumulado</th>
-                    <th className="text-center px-4 py-2 font-medium text-stone-600">Zona</th>
+                    <th className="text-left px-4 py-2 font-medium text-stone-400">Producto</th>
+                    <th className="text-right px-4 py-2 font-medium text-stone-400">Gastado</th>
+                    <th className="text-right px-4 py-2 font-medium text-stone-400">% del total</th>
+                    <th className="text-right px-4 py-2 font-medium text-stone-400">% acumulado</th>
+                    <th className="text-center px-4 py-2 font-medium text-stone-400">Zona</th>
                   </tr>
                 </thead>
                 <tbody>
                   {pareto.map((p) => (
-                    <tr key={p.productoId} className={`border-b border-stone-50 last:border-0 ${p.enEl80 ? "bg-red-50/40" : ""}`}>
-                      <td className="px-4 py-2 text-stone-800">
-                        {p.nombre} <span className="text-stone-400 font-mono text-xs ml-1">{p.codigo}</span>
+                    <tr key={p.productoId} className={`border-b border-stone-800/60 last:border-0 ${p.enEl80 ? "bg-red-950/30" : ""}`}>
+                      <td className="px-4 py-2 text-stone-200">
+                        {p.nombre} <span className="text-stone-500 font-mono text-xs ml-1">{p.codigo}</span>
                       </td>
-                      <td className="px-4 py-2 text-right font-semibold text-stone-900">{formatSoles(p.valor)}</td>
-                      <td className="px-4 py-2 text-right text-stone-600">{p.pctIndividual}%</td>
-                      <td className="px-4 py-2 text-right text-stone-600">{p.pctAcumulado}%</td>
+                      <td className="px-4 py-2 text-right font-semibold text-stone-100">{formatSoles(p.valor)}</td>
+                      <td className="px-4 py-2 text-right text-stone-400">{p.pctIndividual}%</td>
+                      <td className="px-4 py-2 text-right text-stone-400">{p.pctAcumulado}%</td>
                       <td className="px-4 py-2 text-center">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.enEl80 ? "bg-red-100 text-red-700" : "bg-stone-100 text-stone-500"}`}>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.enEl80 ? "bg-red-950/60 text-red-300 border border-red-800" : "bg-stone-800/60 text-stone-400"}`}>
                           {p.enEl80 ? "80%" : "20%"}
                         </span>
                       </td>
@@ -356,44 +356,44 @@ export default function Compras({ productos, variantes, movimientos, compras, on
       ) : tab === "abc" ? (
         <>
           {productosSinCostoAbc > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2 mb-4">
-              <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-sm text-amber-800">
+            <div className="bg-amber-950/60 border border-amber-800 rounded-lg p-3 flex items-start gap-2 mb-4">
+              <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-200">
                 {productosSinCostoAbc} producto{productosSinCostoAbc !== 1 ? "s" : ""} sin costo registrado no se {productosSinCostoAbc !== 1 ? "incluyen" : "incluye"} en este análisis (ve a "Compras" para registrarles un costo).
               </p>
             </div>
           )}
           {abcInventario.length === 0 ? (
-            <EmptyState icon={PieChart} title="Todavía no hay inventario para analizar" body="En cuanto tengas stock con costo registrado, aquí vas a ver qué productos concentran el 80% del valor inmovilizado." />
+            <EmptyState dark icon={PieChart} title="Todavía no hay inventario para analizar" body="En cuanto tengas stock con costo registrado, aquí vas a ver qué productos concentran el 80% del valor inmovilizado." />
           ) : (
-            <div className="bg-white rounded-lg border border-stone-200 shadow-sm overflow-hidden">
-              <div className="bg-stone-50 px-4 py-2.5 border-b border-stone-200">
-                <p className="text-sm text-stone-600">
-                  Los productos marcados en rojo (zona A) concentran aproximadamente el <strong>80% del valor hoy inmovilizado en inventario</strong> — {esConsolidado ? nombreVista : "esta sede"}. Son los que más conviene vigilar de cerca.
+            <div className="bg-stone-900 rounded-2xl border border-stone-800 shadow-xl shadow-black/20 overflow-hidden">
+              <div className="bg-stone-800/60 px-4 py-2.5 border-b border-stone-800">
+                <p className="text-sm text-stone-300">
+                  Los productos marcados en rojo (zona A) concentran aproximadamente el <strong className="text-stone-100">80% del valor hoy inmovilizado en inventario</strong> — {esConsolidado ? nombreVista : "esta sede"}. Son los que más conviene vigilar de cerca.
                 </p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-stone-50 border-b border-stone-200">
+                  <thead className="bg-stone-800/60 border-b border-stone-800">
                     <tr>
-                      <th className="text-left px-4 py-2 font-medium text-stone-600">Producto</th>
-                      <th className="text-right px-4 py-2 font-medium text-stone-600">Valor en stock</th>
-                      <th className="text-right px-4 py-2 font-medium text-stone-600">% del total</th>
-                      <th className="text-right px-4 py-2 font-medium text-stone-600">% acumulado</th>
-                      <th className="text-center px-4 py-2 font-medium text-stone-600">Zona</th>
+                      <th className="text-left px-4 py-2 font-medium text-stone-400">Producto</th>
+                      <th className="text-right px-4 py-2 font-medium text-stone-400">Valor en stock</th>
+                      <th className="text-right px-4 py-2 font-medium text-stone-400">% del total</th>
+                      <th className="text-right px-4 py-2 font-medium text-stone-400">% acumulado</th>
+                      <th className="text-center px-4 py-2 font-medium text-stone-400">Zona</th>
                     </tr>
                   </thead>
                   <tbody>
                     {abcInventario.map((p) => (
-                      <tr key={p.productoId} className={`border-b border-stone-50 last:border-0 ${p.enEl80 ? "bg-red-50/40" : ""}`}>
-                        <td className="px-4 py-2 text-stone-800">
-                          {p.nombre} <span className="text-stone-400 font-mono text-xs ml-1">{p.codigo}</span>
+                      <tr key={p.productoId} className={`border-b border-stone-800/60 last:border-0 ${p.enEl80 ? "bg-red-950/30" : ""}`}>
+                        <td className="px-4 py-2 text-stone-200">
+                          {p.nombre} <span className="text-stone-500 font-mono text-xs ml-1">{p.codigo}</span>
                         </td>
-                        <td className="px-4 py-2 text-right font-semibold text-stone-900">{formatSoles(p.valor)}</td>
-                        <td className="px-4 py-2 text-right text-stone-600">{p.pctIndividual}%</td>
-                        <td className="px-4 py-2 text-right text-stone-600">{p.pctAcumulado}%</td>
+                        <td className="px-4 py-2 text-right font-semibold text-stone-100">{formatSoles(p.valor)}</td>
+                        <td className="px-4 py-2 text-right text-stone-400">{p.pctIndividual}%</td>
+                        <td className="px-4 py-2 text-right text-stone-400">{p.pctAcumulado}%</td>
                         <td className="px-4 py-2 text-center">
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.enEl80 ? "bg-red-100 text-red-700" : "bg-stone-100 text-stone-500"}`}>
+                          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.enEl80 ? "bg-red-950/60 text-red-300 border border-red-800" : "bg-stone-800/60 text-stone-400"}`}>
                             {p.enEl80 ? "A" : "B/C"}
                           </span>
                         </td>
